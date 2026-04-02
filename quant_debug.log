@@ -1,0 +1,14 @@
+WARNING:root:Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+WARNING:root:Please use QuantFormat.QDQ for activation type QInt8 and weight type QInt8. Or it will lead to bad performance on x64.
+WARNING:root:Please consider pre-processing before quantization. See https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+=========================================
+[COA-MLIR] Static Quantization Process   
+=========================================
+Input model : models/onnx_models/resnet18.onnx
+Calib Data  : datasets/calibration_data
+Output model: models/onnx_models/resnet18_quant_int8.onnx
+Act Type    : int8 (Weight fixed to int8)
+
+[Quantizer] 开始搜集校准数据激活最大最小值分布...
+
+[Success] 静态量化顺利完成! 新模型已落盘至: models/onnx_models/resnet18_quant_int8.onnx

@@ -1,0 +1,44 @@
+========== COA-MLIR 量化逐层对齐比对报告 ==========
+模型基准: resnet18_quant_int8.onnx
+容错极值: Max ABS Error <= 1 (量化累加带来的整型溢出极度微调误差容忍)
+
+Layer Name (ONNX)              | MLIR Var        | Max ABS Error   | Status
+---------------------------------------------------------------------------
+               input_quantized | %input_quanti   | 0.0             | PASS
+                 192_quantized | %192_quantize   | 0.0             | PASS
+                 126_quantized | %126_quantize   | 0.0             | PASS
+                 195_quantized | %195_quantize   | 0.0             | PASS
+                 198_quantized | %198_quantize   | 0.0             | PASS
+                 132_quantized | %132_quantize   | 0.0             | PASS
+                 201_quantized | %201_quantize   | 0.0             | PASS
+                 204_quantized | %204_quantize   | 0.0             | PASS
+                 139_quantized | %139_quantize   | 0.0             | PASS
+                 207_quantized | %207_quantize   | 0.0             | PASS
+                 213_quantized | %213_quantize   | 0.0             | PASS
+                 210_quantized | %210_quantize   | 0.0             | PASS
+                 148_quantized | %148_quantize   | 0.0             | PASS
+                 216_quantized | %216_quantize   | 0.0             | PASS
+                 219_quantized | %219_quantize   | 0.0             | PASS
+                 155_quantized | %155_quantize   | 0.0             | PASS
+                 222_quantized | %222_quantize   | 0.0             | PASS
+                 228_quantized | %228_quantize   | 0.0             | PASS
+                 225_quantized | %225_quantize   | 0.0             | PASS
+                 164_quantized | %164_quantize   | 0.0             | PASS
+                 231_quantized | %231_quantize   | 0.0             | PASS
+                 234_quantized | %234_quantize   | 0.0             | PASS
+                 171_quantized | %171_quantize   | 0.0             | PASS
+                 237_quantized | %237_quantize   | 0.0             | PASS
+                 243_quantized | %243_quantize   | 0.0             | PASS
+                 240_quantized | %240_quantize   | 0.0             | PASS
+                 180_quantized | %180_quantize   | 0.0             | PASS
+                 246_quantized | %246_quantize   | 0.0             | PASS
+                 249_quantized | %249_quantize   | 0.0             | PASS
+                 187_quantized | %187_quantize   | 0.0             | PASS
+                 189_quantized | %189_quantize   | 0.0             | PASS
+                           189 | %189            | 0.0             | PASS
+                           190 | %190            | 0.0             | PASS
+                 190_quantized | %190_quantize   | 0.0             | PASS
+              output_quantized | %output_quant   | 0.0             | PASS
+                        output | %output         | 0.0             | PASS
+---------------------------------------------------------------------------
+结论：共比对 36 层。所有受测节点皆满足量化阈值限制，容差 ±1 对齐完毕！

@@ -29,10 +29,10 @@ def main():
         
         # [新增] 并行步骤：抽取模型参数并保存到 intermediate 目录
         intermediate_dir = os.path.join(project_root, "models", "intermediate")
-        importer.extract_weights(intermediate_dir)
+        weights_dict = importer.extract_weights(intermediate_dir)
         
         # 第二步：将 Graph 内容翻译为 MLIR 文本格式
-        builder = MLIRTextBuilder(graph)
+        builder = MLIRTextBuilder(graph, weights_dict)
         mlir_text = builder.generate()
         
         # 第三步：输出文件
