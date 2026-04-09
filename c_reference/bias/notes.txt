@@ -1,0 +1,4 @@
+yolo5_infq8过程中自动生成bias coe文件
+各个层的bias首地址存储在bias addr文件中
+通过在CONV宏中添加宏定义过程来实现自动生成bias
+类似于生成log的过程

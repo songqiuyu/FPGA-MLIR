@@ -1,0 +1,26 @@
+# VLIW 指令偏移地址映射
+------------------------------------------------------------
+0x00000000: layer_0 192_quantized | in:input_quantized in_addr:0x0 out_addr:0x10000000 op:qlinearconv
+0x02000000: layer_1 195_quantized | in:126_quantized in_addr:0x11000000 out_addr:0x12000000 op:qlinearconv
+0x01000000: layer_2 198_quantized | in:195_quantized in_addr:0x12000000 out_addr:0x11000000 op:qlinearconv
+0x02000000: layer_3 201_quantized | in:132_quantized in_addr:0x13000000 out_addr:0x12000000 op:qlinearconv
+0x03000000: layer_4 204_quantized | in:201_quantized in_addr:0x12000000 out_addr:0x13000000 op:qlinearconv
+0x02000000: layer_5 207_quantized | in:139_quantized in_addr:0x14000000 out_addr:0x12000000 op:qlinearconv
+0x05000000: layer_6 213_quantized | in:139_quantized in_addr:0x14000000 out_addr:0x15000000 op:qlinearconv
+0x04000000: layer_7 210_quantized | in:207_quantized in_addr:0x12000000 out_addr:0x14000000 op:qlinearconv
+0x02000000: layer_8 216_quantized | in:148_quantized in_addr:0x16000000 out_addr:0x12000000 op:qlinearconv
+0x06000000: layer_9 219_quantized | in:216_quantized in_addr:0x12000000 out_addr:0x16000000 op:qlinearconv
+0x02000000: layer_10 222_quantized | in:155_quantized in_addr:0x17000000 out_addr:0x12000000 op:qlinearconv
+0x08000000: layer_11 228_quantized | in:155_quantized in_addr:0x17000000 out_addr:0x18000000 op:qlinearconv
+0x07000000: layer_12 225_quantized | in:222_quantized in_addr:0x12000000 out_addr:0x17000000 op:qlinearconv
+0x02000000: layer_13 231_quantized | in:164_quantized in_addr:0x19000000 out_addr:0x12000000 op:qlinearconv
+0x09000000: layer_14 234_quantized | in:231_quantized in_addr:0x12000000 out_addr:0x19000000 op:qlinearconv
+0x02000000: layer_15 237_quantized | in:171_quantized in_addr:0x1a000000 out_addr:0x12000000 op:qlinearconv
+0x0b000000: layer_16 243_quantized | in:171_quantized in_addr:0x1a000000 out_addr:0x1b000000 op:qlinearconv
+0x0a000000: layer_17 240_quantized | in:237_quantized in_addr:0x12000000 out_addr:0x1a000000 op:qlinearconv
+0x02000000: layer_18 246_quantized | in:180_quantized in_addr:0x1c000000 out_addr:0x12000000 op:qlinearconv
+0x0c000000: layer_19 249_quantized | in:246_quantized in_addr:0x12000000 out_addr:0x1c000000 op:qlinearconv
+0x02000000: layer_20 output_quantized | in:190_quantized in_addr:0x1d000000 out_addr:0x12000000 op:qgemm
+------------------------------------------------------------
+# Total: 21 VLIW instructions
+# Address pool: 0x10000000 ~ 0x20000000

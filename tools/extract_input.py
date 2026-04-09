@@ -6,7 +6,6 @@
 import os
 import re
 import numpy as np
-import onnx
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -33,19 +32,20 @@ def extract():
     output_dir = os.path.join(PROJECT_ROOT, "parameters")
     os.makedirs(output_dir, exist_ok=True)
 
-    # 获取输入参数
+    # 获取输入参数 - 从MLIR读取
     params = parse_input_params(mlir_path)
     scale = params['scale']
     zp = params['zero_point']
     print(f"Input params: scale={scale}, zp={zp}")
 
-    # 获取输入形状
-    model = onnx.load(os.path.join(PROJECT_ROOT, "models", "onnx_models", "resnet18_quant_int8.onnx"))
-    input_shape = [d.dim_value for d in model.graph.input[0].type.tensor_type.shape.dim]
+    # 输入形状
+    input_shape = [1, 3, 224, 224]
     print(f"Input shape: {input_shape}")
 
-    # 生成随机测试数据 (float32)
-    input_data = np.random.randn(*input_shape).astype(np.float32)
+    # 读取浮点测试数据
+    input_bin = os.path.join(PROJECT_ROOT, "images", "input_float.bin")
+    input_data = np.fromfile(input_bin, dtype=np.float32).reshape(input_shape)
+    print(f"Loaded: {input_data.shape}, dtype={input_data.dtype}")
 
     # 1. 量化: round(data / scale) + zero_point
     input_quantized = np.round(input_data / scale) + zp

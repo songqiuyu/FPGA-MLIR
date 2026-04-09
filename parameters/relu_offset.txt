@@ -1,0 +1,25 @@
+# ReLU LUT 偏移地址映射
+# Format: 地址: 层索引 输出变量 [in_scale,in_zp,out_scale,out_zp]
+----------------------------------------------------------------------
+0x00000000: layer_0 192_quantized | in_s=0.038565 in_zp=0 out_s=0.022065 out_zp=-128
+0x00000100: layer_1 195_quantized | in_s=0.022065 in_zp=-128 out_s=0.007267 out_zp=-128
+0x00000200: layer_2 198_quantized | in_s=0.007267 in_zp=-128 out_s=0.021189 out_zp=-13
+0x00000300: layer_3 201_quantized | in_s=0.021976 in_zp=-128 out_s=0.010822 out_zp=-128
+0x00000400: layer_4 204_quantized | in_s=0.010822 in_zp=-128 out_s=0.036650 out_zp=40
+0x00000500: layer_5 207_quantized | in_s=0.021560 in_zp=-128 out_s=0.010563 out_zp=-128
+0x00000600: layer_6 213_quantized | in_s=0.021560 in_zp=-128 out_s=0.024932 out_zp=6
+0x00000700: layer_7 210_quantized | in_s=0.010563 in_zp=-128 out_s=0.019906 out_zp=-15
+0x00000800: layer_8 216_quantized | in_s=0.015480 in_zp=-128 out_s=0.007761 out_zp=-128
+0x00000900: layer_9 219_quantized | in_s=0.007761 in_zp=-128 out_s=0.016959 out_zp=22
+0x00000a00: layer_10 222_quantized | in_s=0.018264 in_zp=-128 out_s=0.006218 out_zp=-128
+0x00000b00: layer_11 228_quantized | in_s=0.018264 in_zp=-128 out_s=0.008309 out_zp=52
+0x00000c00: layer_12 225_quantized | in_s=0.006218 in_zp=-128 out_s=0.015620 out_zp=-18
+0x00000d00: layer_13 231_quantized | in_s=0.007968 in_zp=-128 out_s=0.003979 out_zp=-128
+0x00000e00: layer_14 234_quantized | in_s=0.003979 in_zp=-128 out_s=0.013772 out_zp=32
+0x00000f00: layer_15 237_quantized | in_s=0.006620 in_zp=-128 out_s=0.003192 out_zp=-128
+0x00001000: layer_16 243_quantized | in_s=0.006620 in_zp=-128 out_s=0.011158 out_zp=6
+0x00001100: layer_17 240_quantized | in_s=0.003192 in_zp=-128 out_s=0.011183 out_zp=-4
+0x00001200: layer_18 246_quantized | in_s=0.005725 in_zp=-128 out_s=0.002549 out_zp=-128
+0x00001300: layer_19 249_quantized | in_s=0.002549 in_zp=-128 out_s=0.053036 out_zp=-46
+----------------------------------------------------------------------
+# Total: 5120 bytes (20 layers x 256 bytes)

@@ -1,5 +1,5 @@
 """
-整合入口: 提取所有 (weight + bias + relu + input)
+整合入口: 提取所有 (weight + bias + relu + input + vliw)
 """
 
 import os
@@ -12,6 +12,7 @@ import extract_weights
 import extract_bias
 import extract_relu
 import extract_input
+import extract_vliw
 
 
 def main():
@@ -20,20 +21,24 @@ def main():
     print("=" * 60)
 
     # 1. 提取权重
-    print("\n[1/4] Extracting weights...")
+    print("\n[1/5] Extracting weights...")
     extract_weights.extract()
 
     # 2. 提取 bias
-    print("\n[2/4] Extracting bias...")
+    print("\n[2/5] Extracting bias...")
     extract_bias.extract()
 
     # 3. 提取 relu
-    print("\n[3/4] Extracting relu...")
+    print("\n[3/5] Extracting relu...")
     extract_relu.generate_relu_lut()
 
     # 4. 提取输入
-    print("\n[4/4] Extracting input...")
+    print("\n[4/5] Extracting input...")
     extract_input.extract()
+
+    # 5. 生成 VLIW 指令
+    print("\n[5/5] Extracting VLIW...")
+    extract_vliw.extract()
 
     print("\n" + "=" * 60)
     print("[Done] All files generated in parameters/")

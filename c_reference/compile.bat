@@ -1,0 +1,1 @@
+gcc  -O3 -fopenmp resnet_inference.c basic.c operator/maxpool.c operator/conv.c   operator/resize.c operator/elewise.c operator/shapefunc.c -o resnet.exe

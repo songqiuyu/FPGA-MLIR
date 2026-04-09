@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xxd -l 16 d:/PROJECT/FPGA-MLIR/c_reference/initializer/input_scale)",
+      "Bash(xxd -l 16 d:/PROJECT/FPGA-MLIR/c_reference/initializer/input_zero_point)"
+    ]
+  }
+}

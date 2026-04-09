@@ -1,0 +1,25 @@
+# Weight 偏移地址映射
+----------------------------------------------------------------------
+0x00000000: qlinearconv input_quantized -> 192_quantized | weight:193_quantized shape:(64, 7, 7, 32) | ic_pad:32
+0x00018800: qlinearconv 126_quantized -> 195_quantized | weight:196_quantized shape:(64, 3, 3, 64) | ic_pad:64
+0x00021800: qlinearconv 195_quantized -> 198_quantized | weight:199_quantized shape:(64, 3, 3, 64) | ic_pad:64
+0x0002a800: qlinearconv 132_quantized -> 201_quantized | weight:202_quantized shape:(64, 3, 3, 64) | ic_pad:64
+0x00033800: qlinearconv 201_quantized -> 204_quantized | weight:205_quantized shape:(64, 3, 3, 64) | ic_pad:64
+0x0003c800: qlinearconv 139_quantized -> 207_quantized | weight:208_quantized shape:(128, 3, 3, 64) | ic_pad:64
+0x0004e800: qlinearconv 139_quantized -> 213_quantized | weight:214_quantized shape:(128, 1, 1, 64) | ic_pad:64
+0x00050800: qlinearconv 207_quantized -> 210_quantized | weight:211_quantized shape:(128, 3, 3, 128) | ic_pad:128
+0x00074800: qlinearconv 148_quantized -> 216_quantized | weight:217_quantized shape:(128, 3, 3, 128) | ic_pad:128
+0x00098800: qlinearconv 216_quantized -> 219_quantized | weight:220_quantized shape:(128, 3, 3, 128) | ic_pad:128
+0x000bc800: qlinearconv 155_quantized -> 222_quantized | weight:223_quantized shape:(256, 3, 3, 128) | ic_pad:128
+0x00104800: qlinearconv 155_quantized -> 228_quantized | weight:229_quantized shape:(256, 1, 1, 128) | ic_pad:128
+0x0010c800: qlinearconv 222_quantized -> 225_quantized | weight:226_quantized shape:(256, 3, 3, 256) | ic_pad:256
+0x0019c800: qlinearconv 164_quantized -> 231_quantized | weight:232_quantized shape:(256, 3, 3, 256) | ic_pad:256
+0x0022c800: qlinearconv 231_quantized -> 234_quantized | weight:235_quantized shape:(256, 3, 3, 256) | ic_pad:256
+0x002bc800: qlinearconv 171_quantized -> 237_quantized | weight:238_quantized shape:(512, 3, 3, 256) | ic_pad:256
+0x003dc800: qlinearconv 171_quantized -> 243_quantized | weight:244_quantized shape:(512, 1, 1, 256) | ic_pad:256
+0x003fc800: qlinearconv 237_quantized -> 240_quantized | weight:241_quantized shape:(512, 3, 3, 512) | ic_pad:512
+0x0063c800: qlinearconv 180_quantized -> 246_quantized | weight:247_quantized shape:(512, 3, 3, 512) | ic_pad:512
+0x0087c800: qlinearconv 246_quantized -> 249_quantized | weight:250_quantized shape:(512, 3, 3, 512) | ic_pad:512
+0x00abc800: qgemm 190_quantized -> output_quantized | weight:fc_weight_quantized shape:(512, 1000) | ic_pad:512
+----------------------------------------------------------------------
+# Total: 11769856 bytes

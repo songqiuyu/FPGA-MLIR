@@ -1,0 +1,25 @@
+# Bias 偏移地址映射
+----------------------------------------------------------------------
+0x00000000: 192_quantized | bias:194_quantized shape:(64) pad:64
+0x00000100: 195_quantized | bias:197_quantized shape:(64) pad:64
+0x00000200: 198_quantized | bias:200_quantized shape:(64) pad:64
+0x00000300: 201_quantized | bias:203_quantized shape:(64) pad:64
+0x00000400: 204_quantized | bias:206_quantized shape:(64) pad:64
+0x00000500: 207_quantized | bias:209_quantized shape:(128) pad:128
+0x00000700: 213_quantized | bias:215_quantized shape:(128) pad:128
+0x00000900: 210_quantized | bias:212_quantized shape:(128) pad:128
+0x00000b00: 216_quantized | bias:218_quantized shape:(128) pad:128
+0x00000d00: 219_quantized | bias:221_quantized shape:(128) pad:128
+0x00000f00: 222_quantized | bias:224_quantized shape:(256) pad:256
+0x00001300: 228_quantized | bias:230_quantized shape:(256) pad:256
+0x00001700: 225_quantized | bias:227_quantized shape:(256) pad:256
+0x00001b00: 231_quantized | bias:233_quantized shape:(256) pad:256
+0x00001f00: 234_quantized | bias:236_quantized shape:(256) pad:256
+0x00002300: 237_quantized | bias:239_quantized shape:(512) pad:512
+0x00002b00: 243_quantized | bias:245_quantized shape:(512) pad:512
+0x00003300: 240_quantized | bias:242_quantized shape:(512) pad:512
+0x00003b00: 246_quantized | bias:248_quantized shape:(512) pad:512
+0x00004300: 249_quantized | bias:251_quantized shape:(512) pad:512
+0x00004b00: output_quantized | bias:fc_bias_quantized shape:(1000) pad:1008
+----------------------------------------------------------------------
+# Total: 23232 bytes
