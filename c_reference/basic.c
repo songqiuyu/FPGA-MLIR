@@ -1097,6 +1097,46 @@ int output_vliw_binary(FILE *fpo, struct VLIW *vliw)
     fwrite(out, 1, 64, fpo);
 }
 
+// 新增：将VLIW结构体字段以16进制格式输出到txt文件
+int output_vliw_hex(FILE *fp_hex, struct VLIW *vliw)
+{
+    if (fp_hex == NULL) return -1;
+
+    fprintf(fp_hex, "operator=0x%02llx\n", vliw->operator & 0xFF);
+    fprintf(fp_hex, "DDR_x1_address=0x%09llx\n", vliw->DDR_x1_address & 0xFFFFFFFFF);
+    fprintf(fp_hex, "DDR_x2_address=0x%09llx\n", vliw->DDR_x2_address & 0xFFFFFFFFF);
+    fprintf(fp_hex, "Bias_source_address=0x%03llx\n", vliw->Bias_source_address & 0x7FF);
+    fprintf(fp_hex, "Compute_Result_dest_address=0x%09llx\n", vliw->Compute_Result_dest_address & 0xFFFFFFFFF);
+    fprintf(fp_hex, "Activate_LUT_address=0x%02llx\n", vliw->Activate_LUT_address & 0xFF);
+    fprintf(fp_hex, "R=0x%03llx\n", vliw->R & 0x7FF);
+    fprintf(fp_hex, "C=0x%03llx\n", vliw->C & 0x7FF);
+    fprintf(fp_hex, "M=0x%03llx\n", vliw->M & 0xFFF);
+    fprintf(fp_hex, "N=0x%03llx\n", vliw->N & 0xFFF);
+    fprintf(fp_hex, "R0=0x%03llx\n", vliw->R0 & 0x7FF);
+    fprintf(fp_hex, "C0=0x%03llx\n", vliw->C0 & 0x7FF);
+    fprintf(fp_hex, "sM_concat=0x%03llx\n", vliw->sM_concat & 0xFFF);
+    fprintf(fp_hex, "M_concat=0x%03llx\n", vliw->M_concat & 0xFFF);
+    fprintf(fp_hex, "Quant_x1_z=0x%02llx\n", vliw->Quant_x1_z & 0xFF);
+    fprintf(fp_hex, "Quant_x2_z=0x%02llx\n", vliw->Quant_x2_z & 0xFF);
+    fprintf(fp_hex, "Quant_y_z=0x%02llx\n", vliw->Quant_y_z & 0xFF);
+    fprintf(fp_hex, "Conv_pad=0x%01llx\n", vliw->Conv_pad & 0x7);
+    fprintf(fp_hex, "Conv_kernel=0x%02llx\n", vliw->Conv_kernel & 0x1F);
+    fprintf(fp_hex, "Conv_stride=0x%01llx\n", vliw->Conv_stride & 0x7);
+    fprintf(fp_hex, "Conv_dilation=0x%01llx\n", vliw->Conv_dilation & 0x7);
+    fprintf(fp_hex, "Conv_tR=0x%03llx\n", vliw->Conv_tR & 0x7FF);
+    fprintf(fp_hex, "Conv_tC=0x%03llx\n", vliw->Conv_tC & 0x7FF);
+    fprintf(fp_hex, "Conv_tM=0x%03llx\n", vliw->Conv_tM & 0xFFF);
+    fprintf(fp_hex, "Conv_tN=0x%03llx\n", vliw->Conv_tN & 0xFFF);
+    fprintf(fp_hex, "Conv_permuteR=0x%01llx\n", vliw->Conv_permuteR & 0x3);
+    fprintf(fp_hex, "Conv_permuteC=0x%01llx\n", vliw->Conv_permuteC & 0x3);
+    fprintf(fp_hex, "Conv_permuteM=0x%01llx\n", vliw->Conv_permuteM & 0x3);
+    fprintf(fp_hex, "Conv_permuteN=0x%01llx\n", vliw->Conv_permuteN & 0x3);
+    fprintf(fp_hex, "Conv_quant_factor=0x%06llx\n", vliw->Conv_quant_factor & 0x3FFFFFFFF);
+    fprintf(fp_hex, "Conv_quant_factor2=0x%06llx\n", vliw->Conv_quant_factor2 & 0xFFFFFFFF);
+    fprintf(fp_hex, "---\n");
+    return 0;
+}
+
 int display_buffer_consumption(int tN, int tM, int tR, int tC, int N, int M, int kernel, int stride, int pad, int dilation)
 {
     int tN32_rd = 0; // rounded
@@ -1135,7 +1175,7 @@ extern int weight_addr;
 extern int silu_addr;
 extern int bias_addr;
 
-int conv_instruction_gen(FILE *fpo, struct TensorQ *x, struct TensorQ *w, int d, int k, int s, int pad, int tM, int tR, int tC, int sM, int Mconcat, int zx, int zw, int zo, unsigned long long source_addr, unsigned long long dest_addr, unsigned long long factor)
+int conv_instruction_gen(FILE *fpo, FILE *fp_hex, struct TensorQ *x, struct TensorQ *w, int d, int k, int s, int pad, int tM, int tR, int tC, int sM, int Mconcat, int zx, int zw, int zo, unsigned long long source_addr, unsigned long long dest_addr, unsigned long long factor)
 {
     // return 0;
     struct VLIW vliw1;
@@ -1173,11 +1213,12 @@ int conv_instruction_gen(FILE *fpo, struct TensorQ *x, struct TensorQ *w, int d,
     vliw1.Conv_permuteN = 0;
     vliw1.Conv_quant_factor = factor;
     output_vliw_binary(fpo, &vliw1);
+    output_vliw_hex(fp_hex, &vliw1);
     printf("\n");
     display_buffer_consumption(vliw1.Conv_tN, vliw1.Conv_tM, vliw1.Conv_tR, vliw1.Conv_tC, vliw1.N, vliw1.M, vliw1.Conv_kernel, vliw1.Conv_stride, vliw1.Conv_pad, vliw1.Conv_dilation);
 }
 
-int depthconv_instruction_gen(FILE *fpo, struct TensorQ *x, struct TensorQ *w, int d, int k, int s, int pad, int tM, int tR, int tC, int sM, int Mconcat, int zx, int zw, int zo, unsigned long long source_addr, unsigned long long dest_addr, unsigned long long factor)
+int depthconv_instruction_gen(FILE *fpo, FILE *fp_hex, struct TensorQ *x, struct TensorQ *w, int d, int k, int s, int pad, int tM, int tR, int tC, int sM, int Mconcat, int zx, int zw, int zo, unsigned long long source_addr, unsigned long long dest_addr, unsigned long long factor)
 {
     struct VLIW vliw1;
     vliw1.operator= 0;
@@ -1216,11 +1257,12 @@ int depthconv_instruction_gen(FILE *fpo, struct TensorQ *x, struct TensorQ *w, i
     vliw1.Conv_permuteN = 0;
     vliw1.Conv_quant_factor = factor;
     output_vliw_binary(fpo, &vliw1);
+    output_vliw_hex(fp_hex, &vliw1);
     printf("\n");
     display_buffer_consumption(vliw1.Conv_tN, vliw1.Conv_tM, vliw1.Conv_tR, vliw1.Conv_tC, vliw1.N, vliw1.M, vliw1.Conv_kernel, vliw1.Conv_stride, vliw1.Conv_pad, vliw1.Conv_dilation);
 }
 
-int res_instruction_gen(FILE *fpo, struct TensorQ *x, struct TensorQ *w, int tM, int tR, int tC, int sM, int Mconcat, int yz, int xz, int wz, unsigned long long source_addr, unsigned long long source_addr2, unsigned long long dest_addr, long long factor, long long factor2)
+int res_instruction_gen(FILE *fpo, FILE *fp_hex, struct TensorQ *x, struct TensorQ *w, int tM, int tR, int tC, int sM, int Mconcat, int yz, int xz, int wz, unsigned long long source_addr, unsigned long long source_addr2, unsigned long long dest_addr, long long factor, long long factor2)
 {
     // return 0;
     struct VLIW vliw1;
@@ -1258,11 +1300,12 @@ int res_instruction_gen(FILE *fpo, struct TensorQ *x, struct TensorQ *w, int tM,
     vliw1.Conv_quant_factor = factor;
     vliw1.Conv_quant_factor2 = factor2;
     output_vliw_binary(fpo, &vliw1);
+    output_vliw_hex(fp_hex, &vliw1);
     printf("\n");
     display_buffer_consumption(vliw1.Conv_tN, vliw1.Conv_tN, vliw1.Conv_tR, vliw1.Conv_tC, vliw1.N, vliw1.M, vliw1.Conv_kernel, vliw1.Conv_stride, vliw1.Conv_pad, vliw1.Conv_dilation);
 }
 
-int mpool_instruction_gen(FILE *fpo, struct TensorQ *x, int tM, int tR, int tC, int pad, int kernel, int stride, int sM, int Mconcat, unsigned long long source_addr, unsigned long long dest_addr)
+int mpool_instruction_gen(FILE *fpo, FILE *fp_hex, struct TensorQ *x, int tM, int tR, int tC, int pad, int kernel, int stride, int sM, int Mconcat, unsigned long long source_addr, unsigned long long dest_addr)
 {
     // return 0;
     struct VLIW vliw1;
@@ -1295,6 +1338,7 @@ int mpool_instruction_gen(FILE *fpo, struct TensorQ *x, int tM, int tR, int tC, 
     vliw1.Conv_permuteM = 0;
     vliw1.Conv_permuteN = 0;
     output_vliw_binary(fpo, &vliw1);
+    output_vliw_hex(fp_hex, &vliw1);
     printf("\n");
 
     // in this mode,we only care the global buffer consumption and output buffer consumption
@@ -1302,7 +1346,7 @@ int mpool_instruction_gen(FILE *fpo, struct TensorQ *x, int tM, int tR, int tC, 
     display_buffer_consumption(vliw1.Conv_tN, vliw1.Conv_tN, vliw1.Conv_tR, vliw1.Conv_tC, vliw1.N, vliw1.M, vliw1.Conv_kernel, vliw1.Conv_stride, vliw1.Conv_pad, vliw1.Conv_dilation);
 }
 
-int usample_instruction_gen(FILE *fpo, struct TensorQ *x, int tM, int tR, int tC, int sM, int Mconcat, unsigned long long source_addr, unsigned long long dest_addr)
+int usample_instruction_gen(FILE *fpo, FILE *fp_hex, struct TensorQ *x, int tM, int tR, int tC, int sM, int Mconcat, unsigned long long source_addr, unsigned long long dest_addr)
 {
     // return 0;
     struct VLIW vliw1;
@@ -1335,6 +1379,7 @@ int usample_instruction_gen(FILE *fpo, struct TensorQ *x, int tM, int tR, int tC
     vliw1.Conv_permuteM = 0;
     vliw1.Conv_permuteN = 0;
     output_vliw_binary(fpo, &vliw1);
+    output_vliw_hex(fp_hex, &vliw1);
     printf("\n");
     display_buffer_consumption(vliw1.Conv_tN, vliw1.Conv_tM, vliw1.Conv_tR, vliw1.Conv_tC, vliw1.N, vliw1.M, vliw1.Conv_kernel, vliw1.Conv_stride, vliw1.Conv_pad, vliw1.Conv_dilation);
 }

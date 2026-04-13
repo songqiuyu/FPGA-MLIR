@@ -46,11 +46,11 @@ int calculate_buffer_consumption(int tN, int tM, int tR, int tC, int N, int M, i
 
 int test_ff(FILE *fpo, long long address, long long length);
 int transmit_instruction_gen(FILE *fpo, int address, int length);
-int conv_instruction_gen(FILE *fpo,struct TensorQ *x,struct TensorQ *w,int d,int k,int s,int pad,int tM,int tR,int tC,int sM,int Mconcat,int zx,int zw,int zo,unsigned long long source_addr,unsigned long long dest_addr,unsigned long long factor);
-int res_instruction_gen(FILE *fpo,struct TensorQ *x,struct TensorQ *w,int tM,int tR,int tC,int sM,int Mconcat,int yz,int xz,int wz,unsigned long long source_addr,unsigned long long source_addr2,unsigned long long dest_addr,long long factor,long long factor2);
-int mpool_instruction_gen(FILE *fpo,struct TensorQ *x,int tM,int tR,int tC,int pad,int kernel,int stride,int sM,int Mconcat,unsigned long long source_addr,unsigned long long dest_addr);
-int usample_instruction_gen(FILE *fpo,struct TensorQ *x,int tM,int tR,int tC,int sM,int Mconcat,unsigned long long source_addr,unsigned long long dest_addr);
-int depthconv_instruction_gen(FILE *fpo, struct TensorQ *x, struct TensorQ *w, int d, int k, int s, int pad, int tM, int tR, int tC, int sM, int Mconcat, int zx, int zw, int zo, unsigned long long source_addr, unsigned long long dest_addr, unsigned long long factor);
+int conv_instruction_gen(FILE *fpo, FILE *fp_hex, struct TensorQ *x, struct TensorQ *w, int d, int k, int s, int pad, int tM, int tR, int tC, int sM, int Mconcat, int zx, int zw, int zo, unsigned long long source_addr, unsigned long long dest_addr, unsigned long long factor);
+int res_instruction_gen(FILE *fpo, FILE *fp_hex, struct TensorQ *x, struct TensorQ *w, int tM, int tR, int tC, int sM, int Mconcat, int yz, int xz, int wz, unsigned long long source_addr, unsigned long long source_addr2, unsigned long long dest_addr, long long factor, long long factor2);
+int mpool_instruction_gen(FILE *fpo, FILE *fp_hex, struct TensorQ *x, int tM, int tR, int tC, int pad, int kernel, int stride, int sM, int Mconcat, unsigned long long source_addr, unsigned long long dest_addr);
+int usample_instruction_gen(FILE *fpo, FILE *fp_hex, struct TensorQ *x, int tM, int tR, int tC, int sM, int Mconcat, unsigned long long source_addr, unsigned long long dest_addr);
+int depthconv_instruction_gen(FILE *fpo, FILE *fp_hex, struct TensorQ *x, struct TensorQ *w, int d, int k, int s, int pad, int tM, int tR, int tC, int sM, int Mconcat, int zx, int zw, int zo, unsigned long long source_addr, unsigned long long dest_addr, unsigned long long factor);
 
 
 void processFractionalPart(uint32_t fractional_part, uint32_t *fractional_parts);

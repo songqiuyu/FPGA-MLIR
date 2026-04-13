@@ -174,15 +174,18 @@ def assign_addresses(mlir_path, output_path):
             w = npz[weight_var]
             b = npz[bias_var]
 
-            # 计算 weight size: OC * H * W * padded_IC
+            # 计算 weight size: 匹配C代码 n32 * m * kernel * kernel
             oc, ic, h, w_sz = w.shape
-            ic_padded = ((ic + 31) // 32) * 32
-            w_size = oc * h * w_sz * ic_padded
-            b_size = len(b) * 4
+            ic_padded = ((ic + 31) >> 5) << 5  # n32 = ((n + 31) >> 5) << 5
+            kernel = h
+            w_size = ic_padded * oc * kernel * kernel
 
-            weight_info[weight_var] = (weight_addr, bias_addr, w_size, b_size)
+            # bias: 匹配C代码 m16 = (M + 15) >> 4
+            m16 = (oc + 15) >> 4
+
+            weight_info[weight_var] = (weight_addr, bias_addr, w_size, m16)
             weight_addr += w_size
-            bias_addr += b_size
+            bias_addr += m16
 
             # 提取 stride, pad, dilation
             stride = 1
@@ -320,10 +323,10 @@ def assign_addresses(mlir_path, output_path):
                     w_info = weight_info.get(weight_var) if weight_var else None
                     if w_info:
                         w_addr, b_addr, w_sz, b_sz = w_info
-                        # 计算 silu 地址 (每层 256 bytes)
-                        s_addr = silu_info.get(output_name, (silu_addr, 256))[0]
+                        # 计算 silu 地址 - 匹配C代码 silu_addr += 1
+                        s_addr = silu_addr
                         silu_info[output_name] = (s_addr, 256)
-                        silu_addr += 256
+                        silu_addr += 1
 
                         # 计算 R, C, M, N, R0, C0
                         out_shape = shape_estimate.get(base_name, (1, 1, 1, 1))

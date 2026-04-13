@@ -99,7 +99,7 @@ if(del)\
 freeTensor(input);\
 printf("%s ok\n",name);
 
-#define QLinearConv(fpo,tM,tR,tC,Mconcat,sM,source_addr,dest_addr,name,input,nsx,nzx,nw,nsw,nzw,nso,nzo,nb,output,d,k,p,s) \
+#define QLinearConv(fpo,fp_hex,tM,tR,tC,Mconcat,sM,source_addr,dest_addr,name,input,nsx,nzx,nw,nsw,nzw,nso,nzo,nb,output,d,k,p,s) \
 wq=getTensorQ(4); \
 printf("=========================\n");\
 printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",nsx,nzx,nsw,nzw,nso,nzo,nw,nb);\
@@ -121,7 +121,7 @@ bq->lens[0]=wq->lens[0];\
 tlen=getlengthQ(bq);\
 bq->data=(int *)readfile(nb);\
 struct TensorQ *output=conv2Q(input,wq,bq,d,p,s,*zx,*zw,*zo,getfactor(factor,36),36);\
-conv_instruction_gen(fpo,input,wq,d,wq->lens[2],s,p,tM,tR,tC,sM,Mconcat,*zx,*zw,*zo,source_addr,dest_addr,getfactor(factor,36));\
+conv_instruction_gen(fpo,fp_hex,input,wq,d,wq->lens[2],s,p,tM,tR,tC,sM,Mconcat,*zx,*zw,*zo,source_addr,dest_addr,getfactor(factor,36));\
 bias_gen(nb,wq->lens[0]);\
 weight_gen(wq,nw);\
 freeTensorQ(wq);freeTensorQ(bq);\
@@ -130,7 +130,7 @@ cliptensorQ(output);\
 printf("%s ok\n",name);\
 printshapeQ(output);\
 
-#define QLinearConv_AUTO(fpo,source_addr,dest_addr,name,input,nsx,nzx,nw,nsw,nzw,nso,nzo,nb,output,d,k,p,s) \
+#define QLinearConv_AUTO(fpo,fp_hex,source_addr,dest_addr,name,input,nsx,nzx,nw,nsw,nzw,nso,nzo,nb,output,d,k,p,s) \
 wq=getTensorQ(4); \
 sx=(float *)readfile(nsx);sw=(float *)readfile(nsw);so=(float *)readfile(nso);\
 zx=(long long *)readfile(nzx);zw=(long long *)readfile(nzw);zo=(long long *)readfile(nzo);\
@@ -153,7 +153,7 @@ tlen=getlengthQ(bq);\
 bq->data=(int *)readfile(nb);\
 struct TensorQ *output=conv2Q(input,wq,bq,d,p,s,*zx,*zw,*zo,getfactor(factor,36),36);\
 getslice(input,wq,p,d,s,tX); \
-conv_instruction_gen(fpo,input,wq,d,wq->lens[2],s,p,tX[0],tX[1],tX[2],0,wq->lens[0],*zx,*zw,*zo,source_addr,dest_addr,getfactor(factor,36));\
+conv_instruction_gen(fpo,fp_hex,input,wq,d,wq->lens[2],s,p,tX[0],tX[1],tX[2],0,wq->lens[0],*zx,*zw,*zo,source_addr,dest_addr,getfactor(factor,36));\
 bias_gen(nb,wq->lens[0]);\
 weight_gen(wq,nw);\
 freeTensorQ(wq);freeTensorQ(bq);\
@@ -164,7 +164,7 @@ printshapeQ(output);\
 name_param_idx+=1;\
 quantized_param_idx+=2;
 
-#define QLinearDepthConv(fpo,tM,tR,tC,Mconcat,sM,source_addr,dest_addr,name,input,nsx,nzx,nw,nsw,nzw,nso,nzo,nb,output,d,k,p,s)  \
+#define QLinearDepthConv(fpo,fp_hex,tM,tR,tC,Mconcat,sM,source_addr,dest_addr,name,input,nsx,nzx,nw,nsw,nzw,nso,nzo,nb,output,d,k,p,s)  \
 wq=getTensorQ(4); \
 sx=(float *)readfile(nsx);sw=(float *)readfile(nsw);so=(float *)readfile(nso);\
 zx=(long long *)readfile(nzx);zw=(long long *)readfile(nzw);zo=(long long *)readfile(nzo); \
@@ -182,7 +182,7 @@ bq->lens[0]=wq->lens[0];\
 tlen=getlengthQ(bq);\
 bq->data=(int *)readfile(nb);\
 struct TensorQ *output=depthwiseconv2Q(input,wq,bq,d,p,s,*zx,*zw,*zo,getfactor(factor,36),36);\
-depthconv_instruction_gen(fpo,input,wq,d,wq->lens[2],s,p,tM,tR,tC,sM,Mconcat,*zx,*zw,*zo,source_addr,dest_addr,getfactor(factor,36));\
+depthconv_instruction_gen(fpo,fp_hex,input,wq,d,wq->lens[2],s,p,tM,tR,tC,sM,Mconcat,*zx,*zw,*zo,source_addr,dest_addr,getfactor(factor,36));\
 bias_gen(nb,wq->lens[0]);\
 weight_gen(wq,nw);\
 silu_gen_eq(name);\
@@ -192,7 +192,7 @@ cliptensorQ(output);\
 printf("%s ok\n",name);\
 printshapeQ(output);
 
-#define QLinearDepthConvWithSiLU(fpo,tM,tR,tC,Mconcat,sM,source_addr,dest_addr,name,input,nsx,nzx,nw,nsw,nzw,nso,nzo,nb,output,d,k,p,s)  \
+#define QLinearDepthConvWithSiLU(fpo,fp_hex,tM,tR,tC,Mconcat,sM,source_addr,dest_addr,name,input,nsx,nzx,nw,nsw,nzw,nso,nzo,nb,output,d,k,p,s)  \
 wq=getTensorQ(4); \
 printf("=========================\n");\
 printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",nsx,nzx,nsw,nzw,nso,nzo,nw,nb);\
@@ -213,7 +213,7 @@ bq->lens[0]=wq->lens[0];\
 tlen=getlengthQ(bq);\
 bq->data=(int *)readfile(nb);\
 struct TensorQ *output=depthwiseconv2Q(input,wq,bq,d,p,s,*zx,*zw,*zo,getfactor(factor,36),36);\
-depthconv_instruction_gen(fpo,input,wq,d,wq->lens[2],s,p,tM,tR,tC,sM,Mconcat,*zx,*zw,*zo,source_addr,dest_addr,getfactor(factor,36));\
+depthconv_instruction_gen(fpo,fp_hex,input,wq,d,wq->lens[2],s,p,tM,tR,tC,sM,Mconcat,*zx,*zw,*zo,source_addr,dest_addr,getfactor(factor,36));\
 bias_gen(nb,wq->lens[0]);\
 weight_gen(wq,nw);\
 freeTensorQ(wq);freeTensorQ(bq);\
@@ -243,12 +243,12 @@ struct Tensor *output=resize_nni(input,n,m,mode);\
 printf("%s ok\n",name); \
 if(del) freeTensor(input);
 
-#define QResize(fpo,tM,tR,tC,Mconcat,sM,source_addr,dest_addr,name,input,dummy,nscale,output) \
+#define QResize(fpo,fp_hex,tM,tR,tC,Mconcat,sM,source_addr,dest_addr,name,input,dummy,nscale,output) \
 sx=(float *)readfile(nscale);\
 n=round(input->lens[2]*sx[2]);\
 m=round(input->lens[3]*sx[3]);\
 struct TensorQ *output=Qresize_nni(input,n,m,0);\
-usample_instruction_gen(fpo,input,tM,tR,tC,sM,Mconcat,source_addr,dest_addr);\
+usample_instruction_gen(fpo,fp_hex,input,tM,tR,tC,sM,Mconcat,source_addr,dest_addr);\
 printf("%s ok\n",name); \
 printshapeQ(output);\
 free(sx);
@@ -258,9 +258,9 @@ struct Tensor *output=maxpool(input,k,p,s);\
 printf("%s ok\n",name); \
 if(del) freeTensor(input);
 
-#define QMaxPool(fpo,tM,tR,tC,Mconcat,sM,source_addr,dest_addr,name,input,output,k,p,s) \
+#define QMaxPool(fpo,fp_hex,tM,tR,tC,Mconcat,sM,source_addr,dest_addr,name,input,output,k,p,s) \
 struct TensorQ *output=Qmaxpool(input,k,p,s);\
-mpool_instruction_gen(fpo,input,tM,tR,tC,p,k,s,sM,Mconcat,source_addr,dest_addr);\
+mpool_instruction_gen(fpo,fp_hex,input,tM,tR,tC,p,k,s,sM,Mconcat,source_addr,dest_addr);\
 printf("%s ok\n",name); \
 printshapeQ(output);
 
@@ -384,13 +384,13 @@ for(int i=0;i<tlen;i++){\
     }\
 }
 
-#define QLinearAdd(fpo,tM,tR,tC,Mconcat,sM,source_addr,source_addr2,dest_addr,name,input1,nsx,nzx,input2,nsw,nzw,nso,nzo,output) \
+#define QLinearAdd(fpo,fp_hex,tM,tR,tC,Mconcat,sM,source_addr,source_addr2,dest_addr,name,input1,nsx,nzx,input2,nsw,nzw,nso,nzo,output) \
 sx=(float *)readfile(nsx);sw=(float *)readfile(nsw);so=(float *)readfile(nso);\
 zx=(long long *)readfile(nzx);zw=(long long *)readfile(nzw);zo=(long long *)readfile(nzo);\
 factor=(*sx)/(double)(*so);\
 factor2=(*sw)/(double)(*so);\
 struct TensorQ *output=Qadd(input1,input2,*zx,*zw,*zo,getfactor(factor,28),28,getfactor(factor2,28),28);\
-res_instruction_gen(fpo,input1,input2,tM,tR,tC,sM,Mconcat,*zo,*zx,*zw,source_addr,source_addr2,dest_addr,getfactor(factor,28),getfactor(factor2,28));\
+res_instruction_gen(fpo,fp_hex,input1,input2,tM,tR,tC,sM,Mconcat,*zo,*zx,*zw,source_addr,source_addr2,dest_addr,getfactor(factor,28),getfactor(factor2,28));\
 free(sw);free(sx);free(so);free(zx);free(zw);free(zo);\
 cliptensorQ(output);\
 printf("%s ok\n",name);
@@ -424,14 +424,14 @@ freeTensor(input1);freeTensor(input2);\
 }\
 printf("%s ok\n",name);
 
-#define QLinearConcat(fpo,tM,tR,tC,halfM,Mconcat,source_addr,source_addr2,dest_addr,name,nso,nzo,input1,nsx,nzx,input2,nsw,nzw,output,axi) \
+#define QLinearConcat(fpo,fp_hex,tM,tR,tC,halfM,Mconcat,source_addr,source_addr2,dest_addr,name,nso,nzo,input1,nsx,nzx,input2,nsw,nzw,output,axi) \
 sx=(float *)readfile(nsx);sw=(float *)readfile(nsw);so=(float *)readfile(nso);\
 zx=(long long *)readfile(nzx);zw=(long long *)readfile(nzw);zo=(long long *)readfile(nzo);\
 factor=(*sx)/(double)(*so);\
 factor2=(*sw)/(double)(*so);\
 struct TensorQ *output=Qconcat(input1,input2,axi,*zx,*zw,*zo,getfactor(factor,28),28,getfactor(factor2,28),28);\
-res_instruction_gen(fpo,input1,input1,tM,tR,tC,0,Mconcat,*zo,*zx,123,source_addr,source_addr,dest_addr,getfactor(factor,28),0);\
-res_instruction_gen(fpo,input2,input2,tM,tR,tC,halfM,Mconcat,*zo,*zw,123,source_addr2,source_addr2,dest_addr,getfactor(factor2,28),0);\
+res_instruction_gen(fpo,fp_hex,input1,input1,tM,tR,tC,0,Mconcat,*zo,*zx,123,source_addr,source_addr,dest_addr,getfactor(factor,28),0);\
+res_instruction_gen(fpo,fp_hex,input2,input2,tM,tR,tC,halfM,Mconcat,*zo,*zw,123,source_addr2,source_addr2,dest_addr,getfactor(factor2,28),0);\
 free(sw);free(sx);free(so);free(zx);free(zw);free(zo);\
 cliptensorQ(output);\
 printf("%s ok\n",name);

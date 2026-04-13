@@ -247,6 +247,7 @@ int main()
 
     FILE *instruction_out=fopen("instruction/instruction.image", "wb+");;
     FILE *instruction_foo=fopen("instruction/foo.image", "wb+");;
+    FILE *instruction_hex=fopen("instruction/instruction_hex.txt", "wb+");;
 
     // 1.input an image
     // image.raw can be a pre-processed image using python or other tools
@@ -360,7 +361,7 @@ int main()
     quantized_param_idx=0;
 
     QLinearConv_AUTO(
-        instruction_out, 0x0, 0x10000000,
+        instruction_out, instruction_hex, 0x0, 0x10000000,
         "Conv_0_quant",nodeimages_quantized,
         "initializer/input_scale", "initializer/input_zero_point",
         "initializer/193_quantized", "initializer/193_scale",
@@ -374,14 +375,14 @@ int main()
     silu_gen_eq("silu");
 
     QMaxPool(
-        instruction_out, 64, 1, 112, 64, 0, 0x10000000, 0x11000000,
+        instruction_out, instruction_hex, 64, 1, 112, 64, 0, 0x10000000, 0x11000000,
         "maxpool",
         node192_quantized,
         node126_quantized, 3, 1, 2
     )
 
     QLinearConv_AUTO(
-        instruction_out, 0x11000000, 0x12000000,
+        instruction_out, instruction_hex, 0x11000000, 0x12000000,
         "Conv_3_quant",node126_quantized,
         "initializer/192_scale", 
         "initializer/192_zero_point", 
@@ -397,7 +398,7 @@ int main()
     silu_gen_eq("silu");
 
     QLinearConv_AUTO(
-        instruction_out, 0x12000000, 0x13000000,
+        instruction_out, instruction_hex, 0x12000000, 0x13000000,
         "Conv_5_quant",node195_quantized,
         "initializer/195_scale", 
         "initializer/195_zero_point", 
@@ -413,7 +414,7 @@ int main()
     silu_gen_eq("silu");
 
     QLinearAdd(
-        instruction_out, 64, 1, 56, 64, 0,
+        instruction_out, instruction_hex, 64, 1, 56, 64, 0,
         0x13000000, 0x11000000, 0x10000000,
         "QLinearAdd",
         node198_quantized,
@@ -428,7 +429,7 @@ int main()
     )
 
     QLinearConv_AUTO(
-        instruction_out, 0x10000000, 0x11000000,
+        instruction_out, instruction_hex,  0x10000000, 0x11000000,
         "Conv_8_quant",node132_quantized,
         "initializer/132_scale", 
         "initializer/132_zero_point", 
@@ -444,7 +445,7 @@ int main()
     silu_gen_eq("silu");
 
     QLinearConv_AUTO(
-        instruction_out, 0x11000000, 0x12000000,
+        instruction_out, instruction_hex, 0x11000000, 0x12000000,
         "Conv_10_quant",node201_quantized,
         "initializer/201_scale", 
         "initializer/201_zero_point", 
@@ -460,7 +461,7 @@ int main()
     silu_gen_eq("silu");
 
     QLinearAdd(
-        instruction_out, 64, 1, 56, 65, 0, 0x12000000, 0x10000000, 0x11000000,
+        instruction_out, instruction_hex, 64, 1, 56, 65, 0, 0x12000000, 0x10000000, 0x11000000,
         "Add_11_quant", node204_quantized,
         "initializer/204_scale", 
         "initializer/204_zero_point",
@@ -473,7 +474,7 @@ int main()
     )
 
     QLinearConv_AUTO(
-        instruction_out, 0x11000000, 0x12000000,
+        instruction_out, instruction_hex, 0x11000000, 0x12000000,
         "Conv_13_quant",node139_quantized,
         "initializer/139_scale", 
         "initializer/139_zero_point", 
@@ -489,7 +490,7 @@ int main()
     silu_gen_eq("silu");
 
     QLinearConv_AUTO(
-        instruction_out, 0x11000000, 0x14000000,
+        instruction_out, instruction_hex, 0x11000000, 0x14000000,
         "Conv_16_quant",node139_quantized,
         "initializer/139_scale", 
         "initializer/139_zero_point", 
@@ -505,7 +506,7 @@ int main()
     silu_gen_eq("silu");
 
     QLinearConv_AUTO(
-        instruction_out, 0x12000000, 0x13000000,
+        instruction_out, instruction_hex, 0x12000000, 0x13000000,
         "Conv_15_quant",node207_quantized,
         "initializer/207_scale", 
         "initializer/207_zero_point", 
@@ -521,7 +522,7 @@ int main()
     silu_gen_eq("silu");
 
     QLinearAdd(
-        instruction_out, 128, 1, 28, 28, 0, 0x13000000, 0x14000000, 0x10000000,
+        instruction_out, instruction_hex, 128, 1, 28, 28, 0, 0x13000000, 0x14000000, 0x10000000,
         "Add_17",
         node210_quantized,
         "initializer/210_scale",
@@ -535,7 +536,7 @@ int main()
     )
 
     QLinearConv_AUTO(
-        instruction_out, 0x10000000, 0x11000000,
+        instruction_out, instruction_hex, 0x10000000, 0x11000000,
         "Conv_19_quant",node148_quantized,
         "initializer/148_scale", 
         "initializer/148_zero_point", 
@@ -551,7 +552,7 @@ int main()
     silu_gen_eq("silu");
 
     QLinearConv_AUTO(
-        instruction_out, 0x11000000, 0x12000000,
+        instruction_out, instruction_hex, 0x11000000, 0x12000000,
         "Conv_21_quant",node216_quantized,
         "initializer/216_scale", 
         "initializer/216_zero_point", 
@@ -568,7 +569,7 @@ int main()
 
     
     QLinearAdd(
-        instruction_out, 128, 1, 28, 128, 0, 0x12000000, 0x10000000, 0x11000000,
+        instruction_out, instruction_hex, 128, 1, 28, 128, 0, 0x12000000, 0x10000000, 0x11000000,
         "Add_22",
         node219_quantized,
         "initializer/219_scale", 
@@ -583,7 +584,7 @@ int main()
 
 
     QLinearConv_AUTO(
-        instruction_out, 0x11000000, 0x10000000,
+        instruction_out, instruction_hex, 0x11000000, 0x10000000,
         "Conv_24_quant",node155_quantized,
         "initializer/155_scale", 
         "initializer/155_zero_point", 
@@ -599,7 +600,7 @@ int main()
     silu_gen_eq("silu");
 
     QLinearConv_AUTO(
-        instruction_out, 0x11000000, 0x12000000,
+        instruction_out, instruction_hex, 0x11000000, 0x12000000,
         "Conv_27_quant",node155_quantized,
         "initializer/155_scale", 
         "initializer/155_zero_point", 
@@ -616,7 +617,7 @@ int main()
 
 
     QLinearConv_AUTO(
-        instruction_out, 0x10000000, 0x11000000,
+        instruction_out, instruction_hex, 0x10000000, 0x11000000,
         "Conv_26_quant",node222_quantized,
         "initializer/222_scale", 
         "initializer/222_zero_point", 
@@ -632,7 +633,7 @@ int main()
     silu_gen_eq("silu");
 
     QLinearAdd(
-        instruction_out, 256, 1, 14, 256, 0, 0x11000000, 0x12000000, 0x10000000,
+        instruction_out, instruction_hex, 256, 1, 14, 256, 0, 0x11000000, 0x12000000, 0x10000000,
         "Add_28",
         node225_quantized,
         "initializer/225_scale", 
@@ -646,7 +647,7 @@ int main()
     )
 
     QLinearConv_AUTO(
-        instruction_out, 0x10000000, 0x11000000,
+        instruction_out, instruction_hex, 0x10000000, 0x11000000,
         "Conv_30_quant",node164_quantized,
         "initializer/164_scale", 
         "initializer/164_zero_point", 
@@ -662,7 +663,7 @@ int main()
     silu_gen_eq("silu");
 
     QLinearConv_AUTO(
-        instruction_out, 0x11000000, 0x12000000,
+        instruction_out, instruction_hex, 0x11000000, 0x12000000,
         "Conv_32_quant",node231_quantized,
         "initializer/231_scale", 
         "initializer/231_zero_point", 
@@ -679,7 +680,7 @@ int main()
 
 
     QLinearAdd(
-        instruction_out, 256, 1, 14, 256, 0, 0x12000000, 0x10000000, 0x11000000,
+        instruction_out, instruction_hex, 256, 1, 14, 256, 0, 0x12000000, 0x10000000, 0x11000000,
         "Add_33",
         node234_quantized,
         "initializer/234_scale", 
@@ -693,7 +694,7 @@ int main()
     )
 
     QLinearConv_AUTO(
-        instruction_out, 0x11000000, 0x10000000,
+        instruction_out, instruction_hex, 0x11000000, 0x10000000,
         "Conv_35_quant",node171_quantized,
         "initializer/171_scale", 
         "initializer/171_zero_point", 
@@ -709,7 +710,7 @@ int main()
     silu_gen_eq("silu");
 
     QLinearConv_AUTO(
-        instruction_out, 0x10000000, 0x11000000,
+        instruction_out, instruction_hex, 0x10000000, 0x11000000,
         "Conv_38_quant",node237_quantized,
         "initializer/171_scale", 
         "initializer/171_zero_point", 
@@ -726,7 +727,7 @@ int main()
 
 
     QLinearConv_AUTO(
-        instruction_out, 0x10000000, 0x12000000,
+        instruction_out, instruction_hex, 0x10000000, 0x12000000,
         "Conv_37_quant",node237_quantized,
         "initializer/237_scale", 
         "initializer/237_zero_point", 
@@ -743,7 +744,7 @@ int main()
 
 
     QLinearAdd(
-        instruction_out, 512, 1, 7, 512, 0, 0x12000000, 0x11000000, 0x10000000,
+        instruction_out, instruction_hex, 512, 1, 7, 512, 0, 0x12000000, 0x11000000, 0x10000000,
         "Add_39",
         node240_quantized,
         "initializer/240_scale", 
@@ -757,7 +758,7 @@ int main()
     )
 
     QLinearConv_AUTO(
-        instruction_out, 0x10000000, 0x11000000,
+        instruction_out, instruction_hex, 0x10000000, 0x11000000,
         "Conv_41_quant", node180_quantized,
         "initializer/180_scale", 
         "initializer/180_zero_point", 
@@ -774,7 +775,7 @@ int main()
 
 
     QLinearConv_AUTO(
-        instruction_out, 0x11000000, 0x12000000,
+        instruction_out, instruction_hex, 0x11000000, 0x12000000,
         "Conv_43_quant", node246_quantized,
         "initializer/246_scale", 
         "initializer/246_zero_point", 
@@ -790,7 +791,7 @@ int main()
     silu_gen_eq("silu");    
 
     QLinearAdd(
-        instruction_out, 512, 1, 7, 512, 0, 0x12000000, 0x10000000, 0x11000000,
+        instruction_out, instruction_hex, 512, 1, 7, 512, 0, 0x12000000, 0x10000000, 0x11000000,
         "Add_44",
         node249_quantized,
         "initializer/249_scale", 

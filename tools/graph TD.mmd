@@ -1,0 +1,29 @@
+graph TD
+    A([开始: main]) --> B[设置输入 mlir_path 与输出 output_path]
+    B --> C[调用 assign_addresses 函数]
+    
+    subgraph 阶段一: 初始化与预处理
+    C --> D[读取 MLIR 文件内容并按行分割]
+    D --> E[初始化基地址与常量<br>BASE_ADDR=0x0, BASE_OFFSET=0x10000000]
+    E --> F[加载预估 shape 字典 shape_estimate]
+    F --> G[加载量化权重文件 resnet18_quant_int8.npz]
+    G --> H[正则匹配提取所有 qlinearconv 操作]
+    H --> I[遍历匹配结果, 计算并分配 weight, bias 大小与地址]
+    I --> J[提取步长、填充等参数, 调用 get_tile 计算分块 tM, tR, tC]
+    J --> K{是否存在 FC 层?}
+    K -- 是 --> L[计算并分配 FC 层的 weight 和 bias 地址]
+    K -- 否 --> M[准备逐行解析 MLIR]
+    end
+    
+    subgraph 阶段二: 逐行解析与地址注入
+    M --> N{遍历 MLIR 每一行}
+    N -- 结束 --> Z[将新行合并写入 output_path]
+    N -- 读取行 --> O{识别操作类型 op_type}
+    O -- 非目标操作 / 空行 --> P[保留原样, 存入新列表]
+    P --> N
+    O -- 目标操作<br>qlinearconv/add/gemm/maxpool等 --> Q[解析输出变量与所有输入变量]
+    
+    Q --> R[通过 shape_estimate 计算 I/O 张量大小 out_size]
+    R --> S[查表获取输入地址 in_addr, 计算输出地址 out_addr]
+    S --> T{是否为首个操作 first_op?}
+    T

@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(xxd -l 16 d:/PROJECT/FPGA-MLIR/c_reference/initializer/input_scale)",
-      "Bash(xxd -l 16 d:/PROJECT/FPGA-MLIR/c_reference/initializer/input_zero_point)"
+      "Bash(xxd -l 16 d:/PROJECT/FPGA-MLIR/c_reference/initializer/input_zero_point)",
+      "Bash(G:/Anaconda3/envs/502/python.exe d:/PROJECT/FPGA-MLIR/tools/extract_vliw.py)",
+      "Bash(G:/Anaconda3/envs/502/python.exe d:/PROJECT/FPGA-MLIR/tools/extract_vliw.py -v)",
+      "Bash(G:/Anaconda3/envs/502/python.exe tools/assign_addr.py)",
+      "Bash(grep -A5 \"^operator=0x00$\" d:/PROJECT/FPGA-MLIR/c_reference/instruction/instruction_hex.txt)",
+      "Bash(grep -A5 \"^operator=0x00$\" d:/PROJECT/FPGA-MLIR/parameters/vliw_hex.txt)",
+      "Bash(python tools/test_tile.py)",
+      "Bash(python3 tools/test_tile.py)",
+      "Bash(python -c \"print\\('test'\\)\")"
     ]
   }
 }

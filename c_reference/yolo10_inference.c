@@ -247,6 +247,7 @@ int main()
 
     FILE *instruction_out=fopen("instruction/instruction.image", "wb+");;
     FILE *instruction_foo=fopen("instruction/foo.image", "wb+");;
+    FILE *instruction_hex=fopen("instruction/instruction_hex.txt", "wb+");;
 
     // 1.input an image
     // image.raw can be a pre-processed image using python or other tools
@@ -360,7 +361,7 @@ int main()
     quantized_param_idx=0;
 
     QLinearConv_AUTO(
-        instruction_out,0x0, 0x10000000,
+        instruction_out, instruction_hex,0x0, 0x10000000,
         name_params[name_param_idx],
         nodeimages_quantized,
         scale_params[scale_param_idx],zero_point_params[zero_point_param_idx],
@@ -380,7 +381,7 @@ int main()
 
 
     QLinearConv_AUTO(
-        instruction_out,0x10000000, 0x11000000,
+        instruction_out, instruction_hex,0x10000000, 0x11000000,
         name_params[name_param_idx],
         node2,
         scale_params[scale_param_idx],zero_point_params[zero_point_param_idx],
@@ -474,7 +475,7 @@ int main()
         node10
     );
 
-    QLinearAdd(instruction_out, 32, 4, 256, 32, 0, 0x13000000, 0x15000000, 0x16000000,
+    QLinearAdd(instruction_out, instruction_hex, 32, 4, 256, 32, 0, 0x13000000, 0x15000000, 0x16000000,
         "_model.2_m.0_Add_quant",
         node6_split1, "initializer/_model.2_cv1_act_Mul_output_0_scale", "initializer/_model.2_cv1_act_Mul_output_0_zero_point",
         node10, "initializer/_model.2_m.0_cv2_act_Mul_output_0_scale", "initializer/_model.2_m.0_cv2_act_Mul_output_0_zero_point",
@@ -482,7 +483,7 @@ int main()
         node11
     );
 
-    QLinearConcat(instruction_out,32,4,256,32,64,0x12000000,0x13000000,0x17000000,
+    QLinearConcat(instruction_out, instruction_hex,32,4,256,32,64,0x12000000,0x13000000,0x17000000,
         "_model.2_Concat_quant",
         "initializer/_model.2_Concat_output_0_scale","initializer/_model.2_Concat_output_0_zero_point",
         node6_split0,
@@ -508,7 +509,7 @@ int main()
     
 
     QLinearConv_AUTO(
-        instruction_out,0x10000000, 0x11000000,
+        instruction_out, instruction_hex,0x10000000, 0x11000000,
         name_params[name_param_idx],
         node12,
         scale_params[scale_param_idx],zero_point_params[zero_point_param_idx],
@@ -622,7 +623,7 @@ int main()
     );
 
     QLinearAdd(
-        instruction_out,64,4, 128, 64, 0, 0x14000000, 0x16000000,0x17000000,
+        instruction_out, instruction_hex,64,4, 128, 64, 0, 0x14000000, 0x16000000,0x17000000,
         "_model.4_m.9_Add_quant",
         node18_split1,"initializer/_model.4_cv1_act_Mul_output_0_scale","initializer/_model.4_cv1_act_Mul_output_0_zero_point",
         node22,"initializer/_model.4_m.0_cv2_act_Mul_output_0_scale","initializer/_model.4_m.0_cv2_act_Mul_output_0_zero_point",
@@ -672,7 +673,7 @@ int main()
     );
 
     QLinearAdd(
-        instruction_out,64,2,128,64,0,0x17000000,0x19000000,0x1a000000,
+        instruction_out, instruction_hex,64,2,128,64,0,0x17000000,0x19000000,0x1a000000,
         "_model.4_m.1_Add_quant",
         node23,"initializer/_model.4_m.0_Add_output_0_scale","initializer/_model.4_m.0_Add_output_0_zero_point",
         node27,"initializer/_model.4_m.1_cv2_act_Mul_output_0_scale","initializer/_model.4_m.1_cv2_act_Mul_output_0_zero_point",
@@ -681,7 +682,7 @@ int main()
     );
 
     QLinearConcat(
-        instruction_out,64,2,128,64,128,0x13000000,0x14000000,0x10000000,
+        instruction_out, instruction_hex,64,2,128,64,128,0x13000000,0x14000000,0x10000000,
         "_model.4_Concat_quant_0",
         "initializer/_model.4_Concat_output_0_scale","initializer/_model.4_Concat_output_0_zero_point",
         node18_split0,"initializer/_model.4_cv1_act_Mul_output_0_scale","initializer/_model.4_cv1_act_Mul_output_0_zero_point",
@@ -751,7 +752,7 @@ int main()
         node33
     );
 
-    QLinearDepthConv(instruction_out,32,2,64,256,0,0x14000000,0x15000000,
+    QLinearDepthConv(instruction_out, instruction_hex,32,2,64,256,0,0x14000000,0x15000000,
     "_model.5_cv2_conv_Conv_quant",
     node33,"initializer/_model.5_cv1_act_Mul_output_0_scale","initializer/_model.5_cv1_act_Mul_output_0_zero_point",
     "initializer/model.5.cv2.conv.weight_quantized","initializer/model.5.cv2.conv.weight_scale","initializer/model.5.cv2.conv.weight_zero_point",
@@ -902,7 +903,7 @@ int main()
     zero_point_param_idx+=1;
     
     QLinearConcat(
-        instruction_out,128,4,64,128,256,0x16000000,0x17000000,0x10000000,
+        instruction_out, instruction_hex,128,4,64,128,256,0x16000000,0x17000000,0x10000000,
         "_model.6_Concat_quant_0",
         "initializer/_model.6_Concat_output_0_scale","initializer/_model.6_Concat_output_0_zero_point",
         node36_split0,"initializer/_model.6_cv1_act_Mul_output_0_scale","initializer/_model.6_cv1_act_Mul_output_0_zero_point",
@@ -911,7 +912,7 @@ int main()
     );
 
     QLinearConcat(
-        instruction_out,128,4,64,256,384,0x10000000,0x1a000000,0x11000000,
+        instruction_out, instruction_hex,128,4,64,256,384,0x10000000,0x1a000000,0x11000000,
         "_model.6_Concat_quant_1",
         "initializer/_model.6_Concat_output_0_scale","initializer/_model.6_Concat_output_0_zero_point",
         node47_split0_split1,"initializer/_model.6_Concat_output_0_scale","initializer/_model.6_Concat_output_0_zero_point",
@@ -920,7 +921,7 @@ int main()
     );
 
     QLinearConcat(
-        instruction_out,128,4,64,384,512,0x11000000,0x1d000000,0x12000000,
+        instruction_out, instruction_hex,128,4,64,384,512,0x11000000,0x1d000000,0x12000000,
         "_model.6_Concat_quant_2",
         "initializer/_model.6_Concat_output_0_scale","initializer/_model.6_Concat_output_0_zero_point",
         node47_split0_split1_41,"initializer/_model.6_Concat_output_0_scale","initializer/_model.6_Concat_output_0_zero_point",
@@ -972,7 +973,7 @@ int main()
         node52
     );
 
-    QLinearDepthConv(instruction_out,32,1,32,512,0,0x14000000,0x15000000,
+    QLinearDepthConv(instruction_out, instruction_hex,32,1,32,512,0,0x14000000,0x15000000,
         "_model.7_cv2_conv_Conv_quant",
         node52,"initializer/_model.7_cv1_act_Mul_output_0_scale","initializer/_model.7_cv1_act_Mul_output_0_zero_point",
         "initializer/model.7.cv2.conv.weight_quantized",
@@ -1329,7 +1330,7 @@ int main()
     );    
 
     QLinearConv(
-        instruction_out,256,1,32,256,0,
+        instruction_out, instruction_hex,256,1,32,256,0,
         0x16000000,0x17000000,
         "_model.10_ffn_ffn.1_conv_Conv_quant",
         node81,scale_params[scale_param_idx],zero_point_params[zero_point_param_idx],
@@ -1551,7 +1552,7 @@ int main()
 
 
     QLinearConv_AUTO(
-        instruction_out,0x10000000, 0x11000000,
+        instruction_out, instruction_hex,0x10000000, 0x11000000,
         name_params[name_param_idx],
         node100,
         scale_params[scale_param_idx],zero_point_params[zero_point_param_idx],
@@ -1699,7 +1700,7 @@ int main()
 
 
     QLinearConv(
-        instruction_out,128,2,64,128,0,
+        instruction_out, instruction_hex,128,2,64,128,0,
         0x13000000,0x14000000,
         "_model.23_one2one_cv3.0_one2one_cv3.0.0_one2one_cv3.0.0.1_conv_Conv_quant",
         model23_one2one_cv3_0_act_Mul_output0_quantized,
@@ -1754,7 +1755,7 @@ int main()
         model23_one2one_cv3_0_1_0_act_Mul_output0_quantized);
 
     QLinearConv(
-        instruction_out,128,2,64,128,0,
+        instruction_out, instruction_hex,128,2,64,128,0,
         0x15000000,0x16000000,
         "_model.23_one2one_cv3.0_one2one_cv3.0.1_one2one_cv3.0.1.1_conv_Conv_quant",
         model23_one2one_cv3_0_1_0_act_Mul_output0_quantized,
@@ -1918,7 +1919,7 @@ int main()
     zero_point_param_idx+=1;
 
     QLinearConv_AUTO(
-        instruction_out,0x10000000, 0x11000000,
+        instruction_out, instruction_hex,0x10000000, 0x11000000,
         name_params[name_param_idx],
         model18_0,
         scale_params[scale_param_idx],zero_point_params[zero_point_param_idx],
@@ -2102,7 +2103,7 @@ int main()
     name_param_idx=167;
 
     QLinearConv_AUTO(
-        instruction_out,0x10000000, 0x11000000,
+        instruction_out, instruction_hex,0x10000000, 0x11000000,
         name_params[name_param_idx],
         model21_concat,
         scale_params[scale_param_idx],zero_point_params[zero_point_param_idx],
