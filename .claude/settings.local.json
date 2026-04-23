@@ -10,7 +10,19 @@
       "Bash(grep -A5 \"^operator=0x00$\" d:/PROJECT/FPGA-MLIR/parameters/vliw_hex.txt)",
       "Bash(python tools/test_tile.py)",
       "Bash(python3 tools/test_tile.py)",
-      "Bash(python -c \"print\\('test'\\)\")"
+      "Bash(python -c \"print\\('test'\\)\")",
+      "Bash(/g/Anaconda3/envs/502/python d:/PROJECT/FPGA-MLIR/tools/test_tile.py)",
+      "Bash(/g/Anaconda3/envs/502/python tools/extract_vliw.py)",
+      "Bash(/g/Anaconda3/envs/502/python tools/extract_vliw.py --mlir models/mlir_models/resnet18_quant_int8_addr.mlir)",
+      "Bash(/g/Anaconda3/envs/502/python tools/extract_vliw.py -h)",
+      "Bash(/g/Anaconda3/envs/502/python -c ':*)",
+      "Bash(/g/Anaconda3/envs/502/python -c ' *)",
+      "Bash(/g/Anaconda3/envs/502/python tools/test_addr_validation.py parameters/vliw_hex.txt)",
+      "Bash(python tools/assign_addr.py)",
+      "Bash(python -c \"import tools.assign_addr\")",
+      "Bash(python -u tools/assign_addr.py)",
+      "Bash(python -c \"exec\\(open\\('tools/assign_addr.py'\\).read\\(\\)\\)\")",
+      "Bash(python -m py_compile tools/assign_addr.py)"
     ]
   }
 }

@@ -177,7 +177,11 @@ def parse_all_layers(mlir_path, verbose=True):
                 'out_addr': out_addr,
                 'R': H_out, 'C': W_out, 'M': C_in, 'N': C_in,
                 'R0': H_in, 'C0': W_in,
-                'tR': H_out, 'tC': W_out, 'tM': C_in, 'tN': C_in,
+                'sM_concat': parse_int_attr(attrs, 'sM_concat'),
+                'M_concat': parse_int_attr(attrs, 'M_concat'),
+                'tM': parse_int_attr(attrs, 'tM'),
+                'tR': parse_int_attr(attrs, 'tR'),
+                'tC': parse_int_attr(attrs, 'tC'),
                 'type': 'maxpool'
             })
             tensor_shapes[out_var] = [N_in, C_in, H_out, W_out]
@@ -227,7 +231,11 @@ def parse_all_layers(mlir_path, verbose=True):
                 'factor2': factor2,
                 'R': R, 'C': C, 'M': M, 'N': N,
                 'R0': R0, 'C0': C0,
-                'tR': R, 'tC': C, 'tM': M, 'tN': N,
+                'sM_concat': parse_int_attr(attrs, 'sM_concat'),
+                'M_concat': parse_int_attr(attrs, 'M_concat'),
+                'tM': parse_int_attr(attrs, 'tM'),
+                'tR': parse_int_attr(attrs, 'tR'),
+                'tC': parse_int_attr(attrs, 'tC'),
                 'type': 'qlinearadd'
             })
             tensor_shapes[out_var] = in_shape
@@ -323,7 +331,11 @@ def parse_all_layers(mlir_path, verbose=True):
                 'out_addr': out_addr,
                 'R': R, 'C': C, 'M': M, 'N': N,
                 'R0': R0, 'C0': C0,
-                'tR': R, 'tC': C, 'tM': M, 'tN': N,
+                'sM_concat': parse_int_attr(attrs, 'sM_concat'),
+                'M_concat': parse_int_attr(attrs, 'M_concat'),
+                'tM': parse_int_attr(attrs, 'tM'),
+                'tR': parse_int_attr(attrs, 'tR'),
+                'tC': parse_int_attr(attrs, 'tC'),
                 'type': 'qlinearglobalaveragepool'
             })
 
@@ -533,8 +545,8 @@ def generate_vliw_dict(layer_info, op_type='qlinearconv'):
             'N': layer_info.get('N', 1),
             'R0': layer_info.get('R0', 1),
             'C0': layer_info.get('C0', 1),
-            'sM_concat': 0,
-            'M_concat': 0,
+            'sM_concat': layer_info.get('sM_concat', 0),
+            'M_concat': layer_info.get('M_concat', 0),
             'Quant_x1_z': -128,
             'Quant_x2_z': 0,
             'Quant_y_z': 0,
@@ -572,8 +584,8 @@ def generate_vliw_dict(layer_info, op_type='qlinearconv'):
             'N': layer_info.get('N', 1),
             'R0': layer_info.get('R0', 1),
             'C0': layer_info.get('C0', 1),
-            'sM_concat': 0,
-            'M_concat': 0,
+            'sM_concat': layer_info.get('sM_concat', 0),
+            'M_concat': layer_info.get('M_concat', 0),
             'Quant_x1_z': layer_info.get('a_zp', 0),
             'Quant_x2_z': layer_info.get('b_zp', 0),
             'Quant_y_z': layer_info.get('out_zp', 0),
