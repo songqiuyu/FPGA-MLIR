@@ -15,9 +15,17 @@
 
 ```
 compiler/    ← C++ MLIR 编译器（TableGen ODS + 6 Passes + coa-opt/coa-compiler）
-coa/         ← Python 前端库（onnx_importer / mlir_parser / vliw / tiling）
+coa/         ← Python 前端库
+               ├── quantize.py      PTQ 量化工具包（float ONNX → INT8 QOperator ONNX）
+               ├── hw_export.py     硬件参数提取（→ weight/bias/act.image + factors.json）
+               ├── onnx_importer.py 量化 ONNX → Level-1 COA MLIR
+               ├── mlir_parser.py   COA MLIR → 层参数字典
+               ├── vliw.py          512-bit VLIW 指令封装
+               ├── tiling.py        Buffer 约束检查 + 贪心 Tile 搜索
+               └── pruning.py       结构化剪枝
 optimizer/   ← AI 优化（贝叶斯 Tiling / DQN / FusionGAT / NSGA-II AutoQuant）
-examples/    ← 端到端示例（ResNet-18 ONNX → VLIW，已验证 30 条指令）
+examples/    ← 端到端示例（ResNet-18 model/resnet18.onnx → VLIW + 硬件参数）
+tools/       ← 辅助工具（compare_hw_params / quant_report / quant_plot）
 tests/       ← 单元测试（26/26 passing）
 ```
 
@@ -29,7 +37,8 @@ tests/       ← 单元测试（26/26 passing）
 | Phase 2: 测试体系（26 tests） | ✅ 完成 |
 | Phase 3: AI 优化模块（Tiling / 融合 / 量化） | ✅ 完成 |
 | M8: LLVM-15 + onnx_importer 修复 + ResNet-18 端到端验证 | ✅ 完成 |
-| M9: verify.py Python 参考对齐 | 🔲 计划中 |
+| M9: PTQ 量化工具（coa.quantize）+ 硬件参数提取（coa.hw_export）+ 全链路打通 | ✅ 完成 |
+| M10: verify.py Python 参考对齐（zero_point 编码统一） | 🔲 计划中 |
 
 ## 构建
 

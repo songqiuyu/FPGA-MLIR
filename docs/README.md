@@ -111,11 +111,14 @@ FPGA-MLIR/
 │   │   └── coa-compiler/          # 一键编译：MLIR → VLIW 二进制
 │   └── CMakeLists.txt
 │
-├── coa/                           # Python 参考库
-│   ├── onnx_importer.py           # ONNX → COA MLIR 转换器
+├── coa/                           # Python 前端库
+│   ├── quantize.py                # PTQ 量化工具包（float ONNX → INT8 QOperator ONNX）
+│   ├── hw_export.py               # 硬件参数提取（→ weight/bias/act.image + factors.json）
+│   ├── onnx_importer.py           # 量化 ONNX → Level-1 COA MLIR
 │   ├── mlir_parser.py             # COA MLIR → VLIW 参数解析器
 │   ├── vliw.py                    # Python VLIW 位打包参考实现
-│   └── tiling.py                  # Python Tiling 约束计算器
+│   ├── tiling.py                  # Python Tiling 约束计算器
+│   └── pruning.py                 # 结构化剪枝（float ONNX → pruned float ONNX）
 │
 ├── optimizer/                     # AI 优化模块
 │   ├── tiling_search/
@@ -133,16 +136,27 @@ FPGA-MLIR/
 │
 ├── examples/
 │   └── resnet18/                  # ResNet-18 端到端示例
-│       ├── export_onnx.py         # PyTorch PTQ 量化导出
-│       ├── import_mlir.py         # ONNX → COA MLIR
-│       ├── compile.sh             # 调用 coa-compiler 编译
-│       ├── verify.py              # VLIW 二进制逐字节验证
-│       ├── model/resnet18.mlir    # 生成的 COA MLIR
-│       └── output/resnet18.vliw  # 编译产物
+│       ├── model/resnet18.onnx          # 输入浮点模型（原始）
+│       ├── export_onnx.py               # Step 1: 量化（coa.quantize）
+│       ├── import_mlir.py               # Step 2: ONNX → COA MLIR
+│       ├── compile.sh                   # Step 3: 调用 coa-compiler 编译
+│       ├── verify.py                    # VLIW 二进制逐字节验证
+│       ├── data/resnet18_quant_int8.onnx # 量化后 ONNX（自动生成）
+│       ├── model/resnet18.mlir           # COA MLIR（自动生成）
+│       ├── output/resnet18.vliw          # VLIW 指令（自动生成）
+│       └── parameters/                  # 硬件参数（自动生成）
+│           ├── weight.image / bias.image / act.image
+│           └── factors.json / weight_offset.txt / bias_offset.txt
 │
 ├── tests/                         # 单元测试（26 tests）
 │   ├── test_vliw_codegen.py       # VLIW 位打包 + Tiling 约束
 │   └── test_ai_optimizer.py       # AI 优化模块测试
+│
+├── tools/                         # 辅助工具脚本
+│   ├── compare_hw_params.py       # 逐字节对比 weight/bias/act.image
+│   ├── quant_export_data.py       # 提取逐层量化指标（SNR/余弦相似/MAE）
+│   ├── quant_plot.py              # 量化误差可视化（逐层分布图）
+│   └── quant_report.py            # 生成量化质量 HTML 报告
 │
 ├── docs/                          # 项目文档（本目录）
 ├── build.sh                       # 顶层构建脚本
@@ -154,6 +168,93 @@ FPGA-MLIR/
 ## 4. 各程序功能详解
 
 ### 4.1 Python 前端库（`coa/`）
+
+#### `coa/quantize.py` — PTQ 量化工具包
+
+**功能**：将浮点 ONNX 模型进行训练后量化（PTQ），输出 INT8 QOperator 格式的量化 ONNX 模型，可直接送入 `onnx_importer` 和 `hw_export`。
+
+**支持的量化格式**：
+
+| 格式 | 零点 | 说明 |
+|---|---|---|
+| `int8`（默认） | zp ∈ [-128, 127]，有符号非对称 | 与 onnxruntime QInt8 一致 |
+| `int8-sym` | zp = 0，有符号对称 | 硬件友好 |
+| `uint8` | zp ∈ [0, 255]，无符号非对称 | 与 onnxruntime QUInt8 一致 |
+
+**校准算法**：`minmax`（默认）、`percentile`（百分位截断）、`entropy`（KL 散度最小化）
+
+**权重量化**：`per_tensor`（默认，与 legacy 完全一致）或 `per_channel`
+
+**支持的算子及融合**：
+
+| 浮点算子 | 量化后算子 | 说明 |
+|---|---|---|
+| Conv | `QLinearConv` | 支持 Conv+ReLU 融合 |
+| Gemm | `QGemm`（com.microsoft） | 支持 Gemm+ReLU 融合 |
+| Add（双激活输入） | `QLinearAdd` | 支持 Add+ReLU 融合 |
+| MaxPool | 透传（不量化） | — |
+| GlobalAveragePool | 透传（不量化） | — |
+
+**硬件感知后处理（hw_aware passes）**：
+- `hw_fix_scale_factors`：将重量化因子 M 限制在硬件有效范围
+- `hw_equalize_add_scales`：平衡 QLinearAdd 两分支因子之比
+- `hw_check_factors`：逐层打印因子合法性报告
+
+**高级优化**：SmoothQuant（激活-权重联合缩放）、GPTQ（Hessian 引导权重误差修正）
+
+```python
+from coa.quantize import quantize_onnx
+quantize_onnx(
+    'model/resnet18.onnx',
+    'data/resnet18_quant_int8.onnx',
+    calib_data,             # (N, 3, 224, 224) float32
+    act_format='int8',
+    weight_per_channel=False,
+    calibration='minmax',
+)
+```
+
+---
+
+#### `coa/hw_export.py` — 硬件参数提取
+
+**功能**：从量化 ONNX 模型中提取 FPGA 板载所需的所有二进制参数文件。
+
+**输出文件**：
+
+| 文件 | 内容 | 格式 |
+|---|---|---|
+| `weight.image` | INT8 权重（FPGA layout：OC×KH×KW×IC_pad32） | 二进制 |
+| `bias.image` | INT32 偏置（OC 对齐 4 的倍数） | 二进制 |
+| `act.image` | 256-entry INT8 激活 LUT（Sigmoid/Clip 等） | 二进制 |
+| `factors.json` | 每层定点重量化因子及 DDR 地址偏移 | JSON |
+| `weight_offset.txt` | 各层权重在 weight.image 中的偏移 | 文本 |
+| `bias_offset.txt` | 各层偏置在 bias.image 中的偏移 | 文本 |
+
+**支持的节点类型**：`QLinearConv` → `ConvParams`、`QGemm` → `ConvParams`、`QLinearAdd` → `AddParams`
+
+```python
+from coa.hw_export import export_hw_params
+export_hw_params(
+    'data/resnet18_quant_int8.onnx',
+    'parameters/',
+    force_per_tensor=True,  # per-channel → per-tensor 转换
+    verbose=True,
+)
+```
+
+---
+
+#### `coa/pruning.py` — 结构化剪枝
+
+**功能**：对浮点 ONNX 模型的 Conv 层按输出通道进行 L1/L2/随机 准则剪枝，输出仍为 ONNX 浮点模型，可直接进入量化流程。
+
+```python
+from coa.pruning import prune_onnx
+pruned = prune_onnx('resnet18.onnx', sparsity=0.3, criterion='l1')
+```
+
+---
 
 #### `coa/onnx_importer.py` — ONNX 模型导入器
 
@@ -180,7 +281,12 @@ FPGA-MLIR/
 - scale 属性 → `f64`（对应 `F64Attr`/`F64ArrayAttr`）
 - zp 数组 → `[v : i64]`（对应 `I64ArrayAttr`）
 - kernel/stride/pad → `[v : i64]`（对应 `I64ArrayAttr`）
-- 函数返回类型 → `tensor<?xi8>`（动态 shape，由 shape-infer 填充）
+- 函数返回类型 → 实际输出 shape（如 `tensor<1x1000xi8>`，避免编译器类型不匹配）
+
+**特殊处理**：
+- `QLinearAdd`（contrib op）：跳过严格 checker，手动传播输出 shape
+- `QGemm`（com.microsoft）：输入顺序 `[A, a_s, a_zp, B, B_s, B_zp, C(bias), Y_s, Y_zp]`
+- 数字开头的 ONNX tensor 名自动加 `v` 前缀（如 `193` → `v193`），生成合法 MLIR SSA 名
 
 ---
 
@@ -419,19 +525,30 @@ Add:       factor  = round(a_scale / out_scale × 2^15)
 
 ### 4.4 示例程序（`examples/resnet18/`）
 
-#### `export_onnx.py` — PyTorch PTQ 量化导出
+#### `export_onnx.py` — PTQ 量化导出
 
-**功能**：加载 PyTorch ResNet-18 浮点模型，进行训练后量化（PTQ），导出 INT8 ONNX 模型。
+**功能**：调用 `coa.quantize.quantize_onnx` 对 `model/resnet18.onnx`（原始浮点模型）进行训练后量化，输出 INT8 QOperator ONNX 模型。
+
+**校准数据搜索路径**（优先级顺序）：
+1. `data/calibration/*.npy`
+2. `legacy/datasets/calibration_data/*.npy`（自动回落）
+
+**默认配置**：`weight_per_channel=False`（per-tensor，与 legacy 完全对齐）、`calibration=minmax`、`act_format=int8`
 
 **输出**：`data/resnet18_quant_int8.onnx`
+
+```bash
+python -m examples.resnet18.export_onnx
+# 或带参数：python -m examples.resnet18.export_onnx --act-format int8 --calibration minmax
+```
 
 ---
 
 #### `import_mlir.py` — ONNX 转 COA MLIR
 
-**功能**：调用 `coa.onnx_importer.convert_model()` 将量化 ONNX 转为 COA MLIR。
+**功能**：调用 `coa.onnx_importer.onnx_to_coa_mlir()` 将量化 ONNX 转为 COA MLIR（Level-1）。
 
-**输出**：`model/resnet18.mlir`（326 行，20+ 个算子）
+**输出**：`model/resnet18.mlir`（335 行，29 个算子：20 QLinearConv + 8 QLinearAdd + 1 QGemm）
 
 ---
 
@@ -823,18 +940,33 @@ pip install pymoo           # Phase 3-C NSGA-II
 
 ## 11. 完整使用示例（ResNet-18）
 
-### 步骤 1：导出量化 ONNX（已有则跳过）
+### 步骤 1：PTQ 量化（从原始浮点模型出发）
 
 ```bash
-python examples/resnet18/export_onnx.py
+python -m examples.resnet18.export_onnx
+# 输入：examples/resnet18/model/resnet18.onnx
+# 校准：legacy/datasets/calibration_data/（20 张 ImageNet 图像）
 # 输出：examples/resnet18/data/resnet18_quant_int8.onnx
+# 包含：20 QLinearConv + 1 QGemm + 8 QLinearAdd
+```
+
+### 步骤 1b：提取硬件参数（weight/bias/act/factors）
+
+```python
+from coa.hw_export import export_hw_params
+export_hw_params(
+    'examples/resnet18/data/resnet18_quant_int8.onnx',
+    'examples/resnet18/parameters/',
+    force_per_tensor=True, verbose=True,
+)
+# 输出：weight.image（11.2MB）、bias.image（22.7KB）、factors.json（29 层）
 ```
 
 ### 步骤 2：ONNX → COA MLIR
 
 ```bash
 python -m examples.resnet18.import_mlir
-# 输出：examples/resnet18/model/resnet18.mlir（326 行，30 个算子）
+# 输出：examples/resnet18/model/resnet18.mlir（335 行，29 个算子）
 ```
 
 生成的 MLIR 片段示例（Level-1，含量化参数）：
@@ -869,7 +1001,7 @@ compiler/build/bin/coa-compiler \
     examples/resnet18/model/resnet18.mlir
 
 # 预期输出：
-# [coa-vliw-gen] Wrote 30 VLIW instructions (1920 bytes) to resnet18.vliw
+# [coa-vliw-gen] Wrote 31 VLIW instructions (1984 bytes) to resnet18.vliw
 # coa-compiler: Done. Output written to resnet18.vliw
 ```
 
@@ -914,7 +1046,8 @@ $BIN --coa-shape-infer --coa-op-fusion \
 | Phase 3-A | ✅ 完成 | Tiling 自动搜索（贝叶斯 TPE + DQN） |
 | Phase 3-B | ✅ 完成 | GNN 算子融合（FusionGAT 边分类器） |
 | Phase 3-C | ✅ 完成 | AutoQuant 混合精度量化（NSGA-II Pareto） |
-| **M8** | ✅ 完成 | LLVM-15 系统安装 + `onnx_importer` 修复 + ResNet-18 端到端验证（30 条 VLIW） |
-| M9 | 🔲 计划中 | `verify.py` Python 参考实现对齐（量化零点字段修正） |
-| M10 | 🔲 计划中 | YOLO / MobileNet 等更多模型端到端验证 |
-| M11 | 🔲 计划中 | 学术论文：AI-Empowered MLIR Compiler for FPGA VLIW |
+| **M8** | ✅ 完成 | LLVM-15 系统安装 + `onnx_importer` 修复 + ResNet-18 端到端验证 |
+| **M9** | ✅ 完成 | `coa.quantize` PTQ 工具包 + `coa.hw_export` 参数提取 + 全链路打通（float ONNX → VLIW + .image） |
+| M10 | 🔲 计划中 | `verify.py` Python 参考实现对齐（zero_point 编码统一） |
+| M11 | 🔲 计划中 | YOLO / MobileNet 等更多模型端到端验证 |
+| M12 | 🔲 计划中 | 学术论文：AI-Empowered MLIR Compiler for FPGA VLIW |
