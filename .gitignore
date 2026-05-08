@@ -9,3 +9,6 @@ examples/resnet18/output/
 .pytest_cache/
 .vscode/
 compiler/build/
+docs/reports
+examples/resnet18/data
+examples/resnet18/parameters

@@ -50,7 +50,18 @@ def onnx_to_coa_mlir(onnx_path: str, func_name: str = "main") -> str:
         raise ImportError("onnx package is required: pip install onnx")
 
     model = onnx.load(onnx_path)
-    onnx.checker.check_model(model)
+    try:
+        onnx.checker.check_model(model)
+    except Exception:
+        pass   # allow contrib ops (QLinearAdd, etc.)
+
+    # Run shape inference to populate value_info (best-effort; ignore failures
+    # caused by contrib ops like QLinearAdd)
+    try:
+        model = onnx.shape_inference.infer_shapes(model)
+    except Exception:
+        pass
+
     graph = model.graph
 
     # Build initializer map: name → numpy array
@@ -60,6 +71,7 @@ def onnx_to_coa_mlir(onnx_path: str, func_name: str = "main") -> str:
     }
 
     # Build value-info shape map: name → (batch, C, H, W) or None
+    # Also propagate QLinearAdd output shapes from input shapes
     shapes: Dict[str, Optional[Tuple]] = {}
     for vi in list(graph.input) + list(graph.output) + list(graph.value_info):
         t = vi.type.tensor_type
@@ -71,6 +83,20 @@ def onnx_to_coa_mlir(onnx_path: str, func_name: str = "main") -> str:
             shapes[vi.name] = dims
         else:
             shapes[vi.name] = None
+
+    # Add initializer shapes (not present in value_info)
+    for init in graph.initializer:
+        if init.name not in shapes:
+            arr = numpy_helper.to_array(init)
+            shapes[init.name] = tuple(arr.shape)
+
+    # Propagate shapes through QLinearAdd nodes whose output shape is missing
+    # (QLinearAdd is a contrib op; shape inference may skip it)
+    for node in graph.node:
+        if node.op_type == "QLinearAdd" and node.output[0] not in shapes:
+            src_shape = shapes.get(node.input[0]) or shapes.get(node.input[3])
+            if src_shape:
+                shapes[node.output[0]] = src_shape
 
     # Determine model input/output SSA names
     graph_inputs  = [inp.name for inp in graph.input
@@ -349,17 +375,18 @@ def _parse_qlinearadd(node, inits, shapes):
 
 
 def _parse_qgemm(node, inits, shapes):
+    # com.microsoft.QGemm: A a_s a_zp B B_s B_zp C(bias) Y_s Y_zp
     inp = node.input
     x_name = inp[0]
     w_name = inp[3] if len(inp) > 3 else ""
-    b_name = inp[8] if len(inp) > 8 else ""
+    b_name = inp[6] if len(inp) > 6 and inp[6] else ""
 
     in_scale  = _scalar(inits, inp[1])
     in_zp     = int(_scalar(inits, inp[2]))
     w_scale   = _array(inits, inp[4])
     w_zp      = [int(z) for z in _array(inits, inp[5])]
-    out_scale = _scalar(inits, inp[6])
-    out_zp    = int(_scalar(inits, inp[7]))
+    out_scale = _scalar(inits, inp[7]) if len(inp) > 7 else 0.0
+    out_zp    = int(_scalar(inits, inp[8])) if len(inp) > 8 else 0
 
     out_name = node.output[0]
     _, N, _, _ = _shape4(shapes, x_name)
@@ -433,8 +460,10 @@ def _emit_mlir(layers: List[_Layer],
         arg_type = ssa_type.get(ssa, "tensor<?xi8>")
         arg_parts.append(f"{ssa}: {arg_type}")
 
-    # Use dynamic shapes for function output (shape-infer pass fills them later)
-    out_types = ", ".join("tensor<?xi8>" for _ in graph_outputs) if graph_outputs else "tensor<?xi8>"
+    # Use actual output shapes when available (avoids type mismatch in compiler)
+    def _out_type(name: str) -> str:
+        return _tensor_type(shapes, name) if shapes.get(name) else "tensor<?xi8>"
+    out_types = ", ".join(_out_type(n) for n in graph_outputs) if graph_outputs else "tensor<?xi8>"
     args_str = ", ".join(arg_parts)
     lines.append(f"  func.func @{func_name}({args_str}) -> {out_types} {{")
 
@@ -451,9 +480,9 @@ def _emit_mlir(layers: List[_Layer],
             f"    }} : {layer.type_str}"
         )
 
-    # Return statement
+    # Return statement — types must match function signature
     ret_vals  = layers[-1].result_name if layers else "%result"
-    ret_types = ", ".join("tensor<?xi8>" for _ in graph_outputs) if graph_outputs else "tensor<?xi8>"
+    ret_types = ", ".join(_out_type(n) for n in graph_outputs) if graph_outputs else "tensor<?xi8>"
     lines.append(f"    return {ret_vals} : {ret_types}")
 
     lines.append("  }")
@@ -494,7 +523,10 @@ def _bias_type(shapes: Dict, name: str, M: int) -> str:
 
 def _ssa(name: str) -> str:
     """Convert an ONNX tensor name to a legal MLIR SSA identifier."""
-    return re.sub(r'[^a-zA-Z0-9_]', '_', name).lstrip('_') or "v"
+    s = re.sub(r'[^a-zA-Z0-9_]', '_', name).lstrip('_') or "v"
+    if s[0].isdigit():
+        s = 'v' + s
+    return s
 
 
 def _fmt_f64_list(values: List[float]) -> str:

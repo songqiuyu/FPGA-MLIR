@@ -52,6 +52,12 @@ try:
 except ImportError:
     _HAS_ONNX = False
 
+try:
+    import onnxruntime as _ort
+    _HAS_ORT = True
+except ImportError:
+    _HAS_ORT = False
+
 
 # ────────────────────────────────────────────────────────────────
 # Public enums / config
@@ -59,8 +65,9 @@ except ImportError:
 
 class ActFormat(str, Enum):
     """Activation data-type format."""
-    INT8  = "int8"       # symmetric signed: [-128, 127]
-    UINT8 = "uint8"      # asymmetric unsigned: [0, 255]
+    INT8     = "int8"      # asymmetric signed INT8: zp ∈ [-128,127]  (matches onnxruntime QInt8)
+    INT8_SYM = "int8-sym"  # symmetric signed INT8: zp = 0
+    UINT8    = "uint8"     # asymmetric unsigned INT8: zp ∈ [0,255]
 
 
 class CalibMethod(str, Enum):
@@ -100,6 +107,29 @@ def compute_scale_zp_asymmetric(
     scale = max((vmax - vmin), 1e-12) / (qmax - qmin)
     zp = int(round(qmin - vmin / scale))
     zp = max(qmin, min(qmax, zp))
+    return float(scale), int(zp)
+
+
+def compute_scale_zp_signed_asymmetric(
+    vmin: float, vmax: float, bits: int = 8
+) -> Tuple[float, int]:
+    """
+    Asymmetric signed quantization (int8): zero_point ∈ [-128, 127].
+
+    Matches onnxruntime ``QuantType.QInt8`` for activations:
+      scale = (vmax - vmin) / 255
+      zp    = clip(round(-128 - vmin / scale), -128, 127)
+
+    For post-relu activations (vmin=0): zp = -128, full [0, max] range is used.
+    For zero-mean inputs: zp ≈ 0, behaviour is close to symmetric.
+    """
+    qmin = -(1 << (bits - 1))              # -128 for 8-bit
+    qmax =  (1 << (bits - 1)) - 1          #  127 for 8-bit
+    vmin = min(vmin, 0.0)
+    vmax = max(vmax, 0.0)
+    scale = max((vmax - vmin), 1e-12) / (qmax - qmin)   # / 255
+    zp    = int(round(qmin - vmin / scale))
+    zp    = max(qmin, min(qmax, zp))
     return float(scale), int(zp)
 
 
@@ -634,16 +664,49 @@ class _GraphRunner:
 # Calibration collector
 # ────────────────────────────────────────────────────────────────
 
+def _make_ort_calib_session(model: "ModelProto", track_names: set):
+    """
+    Build an onnxruntime InferenceSession that also emits every tracked
+    intermediate tensor as a named output.  This ensures calibration
+    statistics are computed from the same floating-point values that
+    onnxruntime would produce, guaranteeing scale/zp parity with
+    onnxruntime.quantize_static.
+    """
+    import copy as _copy
+    from onnx import shape_inference as _si
+
+    # Run shape inference first so all intermediates have type/shape info
+    ext = _si.infer_shapes(_copy.deepcopy(model))
+
+    existing_out = {o.name for o in ext.graph.output}
+    vi_map = {vi.name: vi for vi in ext.graph.value_info}
+
+    for name in track_names:
+        if name not in existing_out and name in vi_map:
+            ext.graph.output.append(vi_map[name])
+
+    sess_opts = _ort.SessionOptions()
+    sess_opts.log_severity_level = 3   # suppress warnings
+    return _ort.InferenceSession(
+        ext.SerializeToString(),
+        sess_options=sess_opts,
+        providers=["CPUExecutionProvider"],
+    )
+
+
 class CalibrationCollector:
     """
     Run the float model on calibration data and collect per-tensor
     activation histograms (2048-bin).
+
+    When onnxruntime is available (default), uses ORT for inference so that
+    intermediate activation ranges exactly match onnxruntime.quantize_static.
+    Falls back to the pure-numpy _GraphRunner otherwise.
     """
 
     _N_BINS = 2048
 
-    def __init__(self, model: "ModelProto"):
-        self._runner = _GraphRunner(model)
+    def __init__(self, model: "ModelProto", use_ort: bool = True):
         self._graph = model.graph
 
         # Determine which tensor names to track (non-initializer intermediates)
@@ -651,11 +714,22 @@ class CalibrationCollector:
         self._track: set = set()
         for node in self._graph.node:
             for o in node.output:
-                self._track.add(o)
-        # Also track graph inputs (activations)
+                if o:
+                    self._track.add(o)
         for inp in self._graph.input:
             if inp.name not in init_names:
                 self._track.add(inp.name)
+
+        # Choose inference backend
+        if use_ort and _HAS_ORT:
+            self._ort_session = _make_ort_calib_session(model, self._track)
+            # Restrict tracking to tensors the session actually outputs
+            ort_out_names = {o.name for o in self._ort_session.get_outputs()}
+            self._track = self._track & ort_out_names
+            self._runner = None
+        else:
+            self._ort_session = None
+            self._runner = _GraphRunner(model)
 
         self._global_min: Dict[str, float] = {}
         self._global_max: Dict[str, float] = {}
@@ -664,10 +738,34 @@ class CalibrationCollector:
         self._act_abs_max: Dict[str, np.ndarray] = {}  # for SmoothQuant
         self._n_samples = 0
 
+    def _run_inference(self, feed: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        """Run one forward pass; returns dict of tensor_name → ndarray."""
+        if self._ort_session is not None:
+            out_names = [o.name for o in self._ort_session.get_outputs()]
+            results = self._ort_session.run(out_names, feed)
+            return dict(zip(out_names, results))
+        return self._runner.run(feed)
+
     def collect(self, feed: Dict[str, np.ndarray]) -> None:
         """Run one batch through the graph and update statistics."""
-        env = self._runner.run(feed)
+        env = self._run_inference(feed)
         self._n_samples += 1
+
+        # Graph inputs are not emitted by the ORT session as outputs;
+        # capture them directly from the feed dict.
+        for inp_name, inp_arr in feed.items():
+            if inp_name in self._track or inp_name in {
+                    i.name for i in self._graph.input}:
+                arr = inp_arr.astype(np.float32)
+                vmin, vmax = float(arr.min()), float(arr.max())
+                if inp_name not in self._global_min:
+                    self._global_min[inp_name] = vmin
+                    self._global_max[inp_name] = vmax
+                else:
+                    self._global_min[inp_name] = min(self._global_min[inp_name], vmin)
+                    self._global_max[inp_name] = max(self._global_max[inp_name], vmax)
+                # Add to track so get_range works
+                self._track.add(inp_name)
 
         for name in self._track:
             arr = env.get(name)
@@ -722,7 +820,7 @@ class CalibrationCollector:
 
     def collect_histogram(self, feed: Dict[str, np.ndarray]) -> None:
         """Second-pass: accumulate histogram counts (call after finalize)."""
-        env = self._runner.run(feed)
+        env = self._run_inference(feed)
         for name in self._track:
             arr = env.get(name)
             if arr is None or name not in self._histograms:
@@ -816,7 +914,7 @@ def _build_qoperator_graph(
         i.name: numpy_helper.to_array(i) for i in graph.initializer
     }
 
-    act_signed = (act_format == ActFormat.INT8)
+    act_signed = (act_format in (ActFormat.INT8, ActFormat.INT8_SYM))
     act_np_type = np.int8 if act_signed else np.uint8
     act_onnx_type = TensorProto.INT8 if act_signed else TensorProto.UINT8
 
@@ -828,11 +926,34 @@ def _build_qoperator_graph(
     def _add_init(name: str, arr: np.ndarray):
         new_inits[name] = _make_initializer(name, arr)
 
+    # Build relu-fusion map: conv_output_name -> relu_output_name
+    # For Conv -> Relu (or Clip) patterns, QLinearConv will absorb the
+    # activation and output the relu tensor directly (matching onnxruntime).
+    _node_consumers: Dict[str, List] = {}   # tensor -> list of consuming nodes
+    for _nd in graph.node:
+        for _inp in _nd.input:
+            _node_consumers.setdefault(_inp, []).append(_nd)
+
+    relu_fusion_map: Dict[str, str] = {}   # op_out -> relu_out
+    for _nd in graph.node:
+        if _nd.op_type not in ("Conv", "Add", "Gemm"):
+            continue
+        _op_out = _nd.output[0]
+        _consumers = _node_consumers.get(_op_out, [])
+        if len(_consumers) == 1 and _consumers[0].op_type in ("Relu", "Clip"):
+            relu_fusion_map[_op_out] = _consumers[0].output[0]
+
+    # Fused relu output names — skip these Relu/Clip nodes in the new graph
+    _fused_relu_nodes = {v for v in relu_fusion_map.values()}
+    _fused_relu_inputs = set(relu_fusion_map.keys())   # op outputs absorbed
+
     # Compute activation scale/zp for every tracked tensor
     act_params: Dict[str, Tuple[float, int]] = {}
     for name in collector._track:
         vmin, vmax = collector.get_range(name, calib_method)
-        if act_signed:
+        if act_format == ActFormat.INT8:
+            s, z = compute_scale_zp_signed_asymmetric(vmin, vmax, bits)
+        elif act_format == ActFormat.INT8_SYM:
             s, z = compute_scale_zp_symmetric(vmin, vmax, bits)
         else:
             s, z = compute_scale_zp_asymmetric(vmin, vmax, bits)
@@ -904,7 +1025,11 @@ def _build_qoperator_graph(
             _add_init(w_z_name, w_zps)
 
             x_s_name, x_z_name = _get_act_scale_zp(x_name)
-            y_s_name, y_z_name = _get_act_scale_zp(out_name)
+            # If this conv is fused with a following Relu/Clip, use the
+            # relu output's quantisation params and rename the QLinearConv
+            # output to the relu output tensor (absorbing the activation).
+            eff_out_name = relu_fusion_map.get(out_name, out_name)
+            y_s_name, y_z_name = _get_act_scale_zp(eff_out_name)
 
             # QLinearConv inputs: x, x_scale, x_zp, w, w_scale, w_zp, y_scale, y_zp [, B]
             qconv_inputs = [
@@ -928,7 +1053,7 @@ def _build_qoperator_graph(
                 qconv_inputs.append(b_q_name)
 
             qconv = helper.make_node(
-                "QLinearConv", qconv_inputs, [out_name],
+                "QLinearConv", qconv_inputs, [eff_out_name],
                 name=node.name + "_q" if node.name else "",
             )
             for a in node.attribute:
@@ -957,11 +1082,9 @@ def _build_qoperator_graph(
             x_s_name, x_z_name = _get_act_scale_zp(x_name)
             y_s_name, y_z_name = _get_act_scale_zp(out_name)
 
-            qgemm_inputs = [
-                x_name, x_s_name, x_z_name,
-                w_q_name, w_s_name, w_z_name,
-                y_s_name, y_z_name,
-            ]
+            # QGemm spec (com.microsoft): A, a_s, a_zp, B, B_s, B_zp, C, Y_s, Y_zp
+            # Bias (C) comes BEFORE y_scale/y_zp.
+            b_q_name = ""
             if b_name and b_name in init_map:
                 B_float = init_map[b_name].astype(np.float64)
                 x_s = float(act_params.get(x_name, (1.0, 0))[0])
@@ -970,7 +1093,13 @@ def _build_qoperator_graph(
                 B_q = np.clip(B_q, -(1 << 31), (1 << 31) - 1).astype(np.int32)
                 b_q_name = b_name + "_q"
                 _add_init(b_q_name, B_q)
-                qgemm_inputs.append(b_q_name)
+
+            qgemm_inputs = [
+                x_name, x_s_name, x_z_name,
+                w_q_name, w_s_name, w_z_name,
+                b_q_name,           # C (bias) — empty string if no bias
+                y_s_name, y_z_name,
+            ]
 
             qgemm = helper.make_node("QGemm", qgemm_inputs, [out_name],
                                      name=node.name + "_q" if node.name else "")
@@ -984,13 +1113,14 @@ def _build_qoperator_graph(
             out_name = node.output[0]
             # If both inputs are activations (not initializers), emit QLinearAdd
             if a_name not in init_map and b_name_add not in init_map:
+                eff_out_name = relu_fusion_map.get(out_name, out_name)
                 a_s, a_z = _get_act_scale_zp(a_name)
                 b_s, b_z = _get_act_scale_zp(b_name_add)
-                y_s, y_z = _get_act_scale_zp(out_name)
+                y_s, y_z = _get_act_scale_zp(eff_out_name)
                 qadd = helper.make_node(
                     "QLinearAdd",
                     [a_name, a_s, a_z, b_name_add, b_s, b_z, y_s, y_z],
-                    [out_name],
+                    [eff_out_name],
                     name=node.name + "_q" if node.name else "",
                 )
                 new_nodes.append(qadd)
@@ -1008,7 +1138,12 @@ def _build_qoperator_graph(
             # Wrap as a tracked node with scale info (kept as-is for MLIR importer)
             new_nodes.append(node)
 
-        elif op in ("Relu", "Clip", "Sigmoid", "Flatten", "Reshape",
+        elif op in ("Relu", "Clip"):
+            # Skip fused activations (already absorbed into QLinearConv output)
+            if node.output[0] not in _fused_relu_nodes:
+                new_nodes.append(node)
+
+        elif op in ("Sigmoid", "Flatten", "Reshape",
                      "Transpose", "Dropout", "Identity", "Concat",
                      "BatchNormalization", "Unsqueeze", "Squeeze",
                      "Softmax", "Shape", "Constant", "Gather"):
@@ -1118,10 +1253,11 @@ def hw_fix_scale_factors(
         op = node.op_type
 
         if op in ("QLinearConv", "QGemm"):
-            # x, x_scale, x_zp, w, w_scale, w_zp, y_scale, y_zp [, B]
+            # QLinearConv: x, x_s, x_zp, w, w_s, w_zp, y_s, y_zp [, B]
+            # QGemm:       A, a_s, a_zp, B, B_s, B_zp, C(bias), Y_s, Y_zp
             x_s_name = node.input[1]
             w_s_name = node.input[4]
-            y_s_name = node.input[6]
+            y_s_name = node.input[7] if op == "QGemm" else node.input[6]
 
             in_s = _hw_get_init_scalar(inits, x_s_name)
             y_s  = _hw_get_init_scalar(inits, y_s_name)
@@ -1267,7 +1403,8 @@ def hw_check_factors(
         if op in ("QLinearConv", "QGemm"):
             in_s = _hw_get_init_scalar(inits, node.input[1])
             w_s_arr = inits.get(node.input[4])
-            y_s  = _hw_get_init_scalar(inits, node.input[6])
+            y_s_idx = 7 if op == "QGemm" else 6
+            y_s  = _hw_get_init_scalar(inits, node.input[y_s_idx])
             if None in (in_s, y_s) or w_s_arr is None:
                 continue
             w_s_vec = np.abs(w_s_arr.flatten())
@@ -1329,7 +1466,9 @@ def quantize_onnx(
     input_onnx : path to float32 ONNX model.
     output_onnx : path to write quantized ONNX.
     calib_data : (N, C, H, W) float32 calibration images.
-    act_format : ``"int8"`` (symmetric, default) or ``"uint8"`` (asymmetric).
+    act_format : ``"int8"`` (signed asymmetric, matches onnxruntime QInt8, default),
+                 ``"int8-sym"`` (symmetric signed, zp=0), or
+                 ``"uint8"`` (unsigned asymmetric).
     weight_per_channel : use per-channel weight quantization (default True).
     calibration : ``"minmax"`` | ``"percentile"`` | ``"entropy"``.
     smooth_alpha : SmoothQuant α (0–1). None = disabled.
