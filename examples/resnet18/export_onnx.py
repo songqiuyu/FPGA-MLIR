@@ -7,15 +7,21 @@ export_onnx.py — ResNet-18 PTQ 量化 + ONNX 导出
   2. 用 data/calibration/*.npy 做 post-training 量化（可选）
   3. 导出量化后的 INT8 ONNX 模型到 data/resnet18_quant_int8.onnx
 
-依赖：onnx, onnxruntime
+使用 coa.quantize 自研量化工具（不依赖 onnxruntime）。
+依赖：onnx, numpy
 """
 
 import os
 import sys
 import numpy as np
 
+# Ensure project root is on sys.path so `coa` package can be imported
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR   = os.path.join(SCRIPT_DIR, 'data')
+PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..'))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+DATA_DIR = os.path.join(SCRIPT_DIR, 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
 
 CALIB_DIR = os.path.join(DATA_DIR, 'calibration')
@@ -37,71 +43,70 @@ def load_calib_data():
     return np.concatenate(batches, axis=0)
 
 
-def quantize_and_export():
-    """Quantize ResNet-18 to INT8 and save as ONNX."""
+def quantize_and_export(
+    act_format: str = "int8",
+    calibration: str = "minmax",
+    smooth_alpha: float = None,
+    use_gptq: bool = False,
+):
+    """Quantize ResNet-18 to INT8 and save as ONNX.
+
+    Parameters
+    ----------
+    act_format : "int8" (symmetric, default) or "uint8" (asymmetric).
+    calibration : "minmax" | "percentile" | "entropy".
+    smooth_alpha : SmoothQuant α (0-1), None to disable.
+    use_gptq : enable GPTQ-style weight error correction.
+    """
     if os.path.exists(OUT_ONNX):
         print(f"[export_onnx] {OUT_ONNX} already exists, skipping quantization.")
         return OUT_ONNX
 
-    float_onnx = IN_ONNX
-    if not os.path.exists(float_onnx):
+    if not os.path.exists(IN_ONNX):
         raise FileNotFoundError(
-            f"Float ONNX not found: {float_onnx}\n"
+            f"Float ONNX not found: {IN_ONNX}\n"
             "  Place resnet18.onnx in examples/resnet18/data/")
 
     try:
         calib_data = load_calib_data()
         print(f"[export_onnx] Loaded {len(calib_data)} calibration samples")
-        _quantize_with_onnxruntime(float_onnx, calib_data)
     except FileNotFoundError:
-        print("[export_onnx] No calibration data; trying static quantization with random data...")
-        calib_data = np.random.randint(-128, 128, (64, 3, 224, 224), dtype=np.int8).astype(np.float32) / 128
-        _quantize_with_onnxruntime(float_onnx, calib_data)
+        print("[export_onnx] No calibration data; using 64 random samples ...")
+        calib_data = np.random.randn(64, 3, 224, 224).astype(np.float32)
+
+    from coa.quantize import quantize_onnx
+
+    quantize_onnx(
+        IN_ONNX,
+        OUT_ONNX,
+        calib_data,
+        act_format=act_format,
+        weight_per_channel=True,
+        calibration=calibration,
+        smooth_alpha=smooth_alpha,
+        use_gptq=use_gptq,
+    )
     return OUT_ONNX
 
 
-def _quantize_with_onnxruntime(float_onnx: str, calib_data):
-    """Run onnxruntime static INT8 quantization (QOperator format)."""
-    try:
-        from onnxruntime.quantization import (
-            quantize_static, CalibrationDataReader, QuantType, QuantFormat)
-        from onnxruntime.quantization.preprocess import quant_pre_process
-    except ImportError:
-        print("[export_onnx] ERROR: onnxruntime not found.")
-        print("  pip install onnxruntime")
-        sys.exit(1)
-
-    # Pre-process: fold BN, add missing biases, run shape inference
-    preprocessed = float_onnx.replace(".onnx", "_prep.onnx")
-    print("[export_onnx] Pre-processing model (shape inference + BN fold) ...")
-    quant_pre_process(float_onnx, preprocessed, skip_optimization=False)
-
-    class _CalibReader(CalibrationDataReader):
-        def __init__(self, data):
-            self._data = [{"input": d[None].astype(np.float32)} for d in data[:64]]
-            self._idx = 0
-        def get_next(self):
-            if self._idx >= len(self._data):
-                return None
-            out = self._data[self._idx]
-            self._idx += 1
-            return out
-
-    print("[export_onnx] Running onnxruntime static INT8 quantization ...")
-    quantize_static(
-        preprocessed, OUT_ONNX,
-        calibration_data_reader=_CalibReader(calib_data),
-        quant_format=QuantFormat.QOperator,
-        activation_type=QuantType.QUInt8,
-        weight_type=QuantType.QInt8,
-    )
-    # Remove temp file
-    if os.path.exists(preprocessed):
-        os.remove(preprocessed)
-    print(f"[export_onnx] INT8 ONNX (QOperator) saved to {OUT_ONNX}")
-
-
 if __name__ == "__main__":
-    out = quantize_and_export()
+    import argparse
+    parser = argparse.ArgumentParser(description="ResNet-18 PTQ quantization")
+    parser.add_argument("--act-format", choices=["int8", "uint8"], default="int8",
+                        help="Activation format: int8 (default) or uint8")
+    parser.add_argument("--calibration", choices=["minmax", "percentile", "entropy"],
+                        default="minmax", help="Calibration method")
+    parser.add_argument("--smooth-alpha", type=float, default=None,
+                        help="SmoothQuant alpha (0-1)")
+    parser.add_argument("--gptq", action="store_true", default=False,
+                        help="Enable GPTQ weight correction")
+    args = parser.parse_args()
+
+    out = quantize_and_export(
+        act_format=args.act_format,
+        calibration=args.calibration,
+        smooth_alpha=args.smooth_alpha,
+        use_gptq=args.gptq,
+    )
     print(f"\n[export_onnx] Done -> {out}")
-    print("[export_onnx] Next: run  python import_mlir.py")
+    print("[export_onnx] Next: run  python -m examples.resnet18.import_mlir")
