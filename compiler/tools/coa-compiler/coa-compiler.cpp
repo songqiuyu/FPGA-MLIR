@@ -110,11 +110,17 @@ int main(int argc, char **argv) {
             return 1;
     }
 
-    // Address assignment with configurable bases
+    // Activation memory allocation: liveness + linear scan (new pass)
+    {
+        std::string spec = "coa-mem-alloc{act-base=" + std::to_string((int64_t)ActBase) + "}";
+        if (failed(mlir::parsePassPipeline(spec, funcPM, llvm::errs())))
+            return 1;
+    }
+
+    // Weight/bias address assignment + quantization factors
     {
         std::string spec = "coa-addr-assign{weight-base=" + std::to_string((int64_t)WeightBase)
-                         + " bias-base=" + std::to_string((int64_t)BiasBase)
-                         + " act-base=" + std::to_string((int64_t)ActBase) + "}";
+                         + " bias-base=" + std::to_string((int64_t)BiasBase) + "}";
         if (failed(mlir::parsePassPipeline(spec, funcPM, llvm::errs())))
             return 1;
     }

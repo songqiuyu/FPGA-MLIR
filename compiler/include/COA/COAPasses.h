@@ -23,6 +23,7 @@ namespace mlir::coa {
 std::unique_ptr<mlir::Pass> createCOAShapeInferPass();
 std::unique_ptr<mlir::Pass> createCOAOpFusionPass();
 std::unique_ptr<mlir::Pass> createCOATilingPass();
+std::unique_ptr<mlir::Pass> createCOAMemAllocPass();
 std::unique_ptr<mlir::Pass> createCOAAddrAssignPass();
 std::unique_ptr<mlir::Pass> createCOALegalizePass();
 std::unique_ptr<mlir::Pass> createCOAVLIWGenPass();

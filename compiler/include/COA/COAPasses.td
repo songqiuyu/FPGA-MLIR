@@ -75,23 +75,65 @@ def COATiling : Pass<"coa-tiling", "::mlir::func::FuncOp"> {
 }
 
 //===----------------------------------------------------------------------===//
-// Pass 4: Address Assignment
-// Assigns DDR in_addr / out_addr / weight_addr / bias_addr to each op and
-// computes the fixed-point quantization factor.
+// Pass 4a: Activation Memory Allocation (Liveness + Linear Scan)
+// Assigns DDR in_addr / out_addr / in2_addr for all activation tensors using
+// a liveness-based linear scan allocator (Poletto & Sarkar, TOPLAS 1999).
+// Must run after --coa-shape-infer and before --coa-addr-assign.
+//===----------------------------------------------------------------------===//
+
+def COAMemAlloc : Pass<"coa-mem-alloc", "::mlir::func::FuncOp"> {
+    let summary = "Liveness-based linear scan DDR allocation for activation tensors.";
+    let constructor = "::mlir::coa::createCOAMemAllocPass()";
+    let description = [{
+        Replaces the naive ping-pong activation scheme with a compiler-theoretic
+        linear scan register allocator adapted for FPGA DDR:
+
+          1. Assign monotone sequence numbers to all COA ops (topological order).
+          2. For each op result (activation tensor), compute the live interval
+             [def_time, last_use_time] and tensor size (M * R * C bytes).
+          3. Sort intervals by def_time; maintain a free-pool for expired
+             intervals. Use best-fit allocation from the pool; fall back to
+             bump allocation from act-base.
+          4. Write in_addr, out_addr, in2_addr (QLinearAdd) on every COA op.
+
+        Benefit over ping-pong:
+          peak = max(sum of simultaneously-live sizes)  vs.  2 × max_size
+        Correctly handles residual skip connections (shortcut tensors stay live
+        until consumed by QLinearAdd, preventing address reuse conflicts).
+
+        Sets: in_addr, out_addr, in2_addr
+        Leaves: weight_addr, bias_addr, factor, factor2  (to --coa-addr-assign)
+    }];
+    let options = [
+        Option<"activationBase", "act-base", "int64_t", "0x10000000",
+               "Base DDR address for the activation tensor pool">,
+        Option<"verbose", "verbose", "bool", "false",
+               "Print per-interval allocation table and footprint report">
+    ];
+    let dependentDialects = ["::mlir::coa::COADialect", "::mlir::func::FuncDialect"];
+}
+
+//===----------------------------------------------------------------------===//
+// Pass 4b: Address Assignment (Weight / Bias / Quantization Factors)
+// Assigns weight_addr / bias_addr / factor / factor2 to each op.
+// Activation addresses (in_addr / out_addr) are set by --coa-mem-alloc.
 //===----------------------------------------------------------------------===//
 
 def COAAddrAssign : Pass<"coa-addr-assign", "::mlir::func::FuncOp"> {
     let summary = "Assign DDR addresses and compute quantization factors for each COA op.";
     let constructor = "::mlir::coa::createCOAAddrAssignPass()";
     let description = [{
-        Address layout (matching assign_addr.py):
-          - First-layer input:   0x0
-          - Activation buffers:  BASE + 0x10000000 (ping-pong)
-          - Weight base:         0x8000000 (IC padded to 32)
-          - Bias base:           0xC0000000
-        Also computes:
-          factor = round(in_scale * weight_scale / out_scale * 2^15)
-          factor2 = round(a_scale / out_scale * 2^15)  (for qlinearadd)
+        Assigns weight and bias DDR addresses, and computes fixed-point
+        quantization factors.  Activation addresses (in_addr, out_addr,
+        in2_addr) are assumed to have been set by --coa-mem-alloc.
+
+        Weight address layout:
+          weight_base + cumulative_offset   (IC padded to 32, sequential)
+        Bias address layout:
+          bias_base   + cumulative_offset   (M * 4 bytes, sequential)
+        Quantization factors:
+          factor  = round(in_scale * weight_scale[0] / out_scale * 2^15)
+          factor2 = round(b_scale / out_scale * 2^15)  (QLinearAdd)
     }];
     let options = [
         Option<"weightBase", "weight-base", "int64_t", "0x8000000",

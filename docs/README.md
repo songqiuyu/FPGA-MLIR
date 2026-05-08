@@ -61,14 +61,15 @@
          └──────────┬────────────┘
                     │
          ┌──────────▼──────────────────────────────────────────┐
-         │           C++ MLIR 编译器流水线 (6 Passes)           │
+         │           C++ MLIR 编译器流水线 (7 Passes)           │
          │                                                      │
          │  1. coa-shape-infer  → 填充 R,C,M,N,R0,C0           │
          │  2. coa-op-fusion    → Conv+Add 残差融合             │
          │  3. coa-tiling       → 计算 tM,tR,tC (缓冲区感知)   │
-         │  4. coa-addr-assign  → DDR 地址 + 量化因子 factor    │
-         │  5. coa-legalize     → 全 VLIW 位域合法性验证        │
-         │  6. coa-vliw-gen     → 生成 N×512-bit 二进制流       │
+         │  4. coa-mem-alloc    → 激活 DDR 地址 (线性扫描)      │
+         │  5. coa-addr-assign  → 权重/偏置地址 + factor        │
+         │  6. coa-legalize     → 全 VLIW 位域合法性验证        │
+         │  7. coa-vliw-gen     → 生成 N×512-bit 二进制流       │
          └──────────┬──────────────────────────────────────────┘
                     │
                     ▼
@@ -96,7 +97,7 @@ FPGA-MLIR/
 │   ├── include/COA/
 │   │   ├── COADialect.td          # 方言 TableGen ODS 定义
 │   │   ├── COAOps.td              # 5 个算子的完整属性定义
-│   │   ├── COAPasses.td           # 6 个 Pass 的 TableGen 定义
+│   │   ├── COAPasses.td           # 7 个 Pass 的 TableGen 定义
 │   │   ├── COADialect.h/.cpp      # 方言初始化与属性解析
 │   │   ├── COAOps.h               # 算子类头文件（TableGen 生成）
 │   │   ├── COAPasses.h            # Pass 工厂函数与注册
@@ -104,7 +105,7 @@ FPGA-MLIR/
 │   ├── lib/
 │   │   ├── Dialect/               # COADialect.cpp, COAOps.cpp
 │   │   ├── Transforms/            # ShapeInfer / OpFusion / Tiling /
-│   │   │                          # AddrAssign / Legalize
+│   │   │                          # MemAlloc / AddrAssign / Legalize
 │   │   └── CodeGen/               # VLIWCodeGen.cpp（位域打包输出）
 │   ├── tools/
 │   │   ├── coa-opt/               # 调试工具：逐 Pass 运行与检查
@@ -348,7 +349,7 @@ odepth = tR × tC × tM16_max(M,tM)                                   < 2048
 | `--output <file>` | `output.vliw` | 输出 VLIW 二进制文件路径 |
 | `--weight-base <hex>` | `0x08000000` | 权重张量 DDR 基地址 |
 | `--bias-base <hex>` | `0xC0000000` | 偏置张量 DDR 基地址 |
-| `--act-base <hex>` | `0x10000000` | 激活张量 DDR 基地址（ping-pong） |
+| `--act-base <hex>` | `0x10000000` | 激活张量 DDR 池基地址（线性扫描分配器） |
 | `--wdepth-limit <n>` | `256` | 权重缓冲深度上限 |
 | `--gdepth-limit <n>` | `1024` | 输入 tile 缓冲深度上限 |
 | `--odepth-limit <n>` | `2048` | 输出 tile 缓冲深度上限 |
@@ -357,7 +358,7 @@ odepth = tR × tC × tM16_max(M,tM)                                   < 2048
 **内部执行顺序**：
 1. 解析命令行，建立 `MLIRContext` 并注册 COA 方言
 2. 用 `parseSourceFile<ModuleOp>()` 解析输入 MLIR
-3. 构建 `PassManager`，在 `func::FuncOp` 上嵌套 6 个 Pass
+3. 构建 `PassManager`，在 `func::FuncOp` 上嵌套 7 个 Pass
 4. 调用 `pm.run(*module)` 执行流水线
 5. `coa-vliw-gen` pass 直接将二进制写入指定输出文件
 
@@ -388,12 +389,12 @@ coa-opt --coa-shape-infer --coa-op-fusion --coa-tiling \
 
 # 完整流水线，输出供 Python verify.py 对比的 lowered MLIR
 coa-opt --coa-shape-infer --coa-op-fusion \
-        --coa-tiling --coa-addr-assign --coa-legalize \
+        --coa-tiling --coa-mem-alloc --coa-addr-assign --coa-legalize \
         model.mlir -o model_lowered.mlir
 
 # 完整编译到 VLIW（带代码生成）
 coa-opt --coa-shape-infer --coa-op-fusion \
-        --coa-tiling --coa-addr-assign --coa-legalize \
+        --coa-tiling --coa-mem-alloc --coa-addr-assign --coa-legalize \
         "--coa-vliw-gen=output=model.vliw" \
         model.mlir
 ```
@@ -460,12 +461,42 @@ coa-opt --coa-shape-infer --coa-op-fusion \
 
 ---
 
-#### Pass 4 · `AddrAssign.cpp` — DDR 地址分配
+#### Pass 4a · `MemAlloc.cpp` — 激活内存分配（生命周期线性扫描）
 
 **输入**：Level-2+Tiling COA MLIR
-**输出**：每个算子填入 `in_addr`, `out_addr`, `weight_addr`, `bias_addr`, `factor`, `factor2`
+**输出**：每个算子填入 `in_addr`, `out_addr`；`QLinearAdd` 额外填入 `in2_addr`
 
-**地址分配策略**：
+**算法**（Poletto & Sarkar, TOPLAS'99 移植）：
+
+```
+Phase 1 — 拓扑序号：对全部 COA op 赋予单调序号 t
+
+Phase 2 — 生命周期分析：对每个 op result（激活张量）构造 interval:
+  def_time = 产生该 Value 的 op 序号
+  last_use = 最后一个使用该 Value 的 op 序号
+  size     = M × R × C 字节（INT8）
+
+Phase 3 — 线性扫描分配：
+  按 def_time 排序；维护 active 列表（按 last_use）和 free_pool（已过期块）
+  - 将 last_use < def_time 的块归还 free_pool
+  - Best-fit 分配：查找最小的可用块 ≥ size
+  - 未找到则从 bump 指针扩展
+
+内存节省对比（ResNet-18）：
+  旧 Ping-Pong: 2 × max_single_size（且 QLinearAdd 三地址相同—bug）
+  线性扫描: max(Σ同时存活)，峰值节省约 25%，残差连接正确处理
+```
+
+**Pass 选项**：
+- `--act-base=0x10000000`（激活池基地址，可配置）
+- `--verbose`（打印逐 interval 分配表 + 峰值展示）
+
+---
+
+#### Pass 4b · `AddrAssign.cpp` — 权重/偏置地址 + 量化因子
+
+**输入**：Level-2+Tiling COA MLIR（`in_addr`/`out_addr` 已由 coa-mem-alloc 设置）
+**输出**：每个算子填入 `weight_addr`, `bias_addr`, `factor`, `factor2`
 
 ```
 权重地址（顺序追加，不重叠）：
@@ -476,18 +507,9 @@ coa-opt --coa-shape-infer --coa-op-fusion \
   bias_base = 0xC0000000（可配置）
   每层 bias_offset += M × 4                         （int32 字节）
 
-激活地址（Ping-Pong 双缓冲）：
-  第 0 层输入 → 0x00000000（函数参数）
-  其余层：in_addr ← 上一层 out_addr
-  out_addr 在两个基地址间交替
-  act_base = 0x10000000（可配置）
-```
-
-**量化因子计算**：
-```
-Conv/GEMM: factor  = round(in_scale × weight_scale[0] / out_scale × 2^15)
-Add:       factor  = round(a_scale / out_scale × 2^15)
-           factor2 = round(b_scale / out_scale × 2^15)
+量化因子：
+  factor  = round(in_scale × mean(weight_scale) / out_scale × 2^15)  (Conv/Gemm)
+  factor2 = round(b_scale / out_scale × 2^15)                          (QLinearAdd)
 ```
 
 ---
@@ -694,16 +716,21 @@ Level 3  —— 硬件层（coa-tiling + coa-addr-assign 填入）
   │   贪心求解最大合法分块 (tM, tR, tC)
   │   约束：wdepth < 256, gdepth < 1024, odepth < 2048
   │
-  ▼  Pass 4: coa-addr-assign  [可配置 DDR 基地址]
+  ▼  Pass 4: coa-mem-alloc  [可配置 --act-base]
+  │   激活张量生命周期分析 (liveness interval)
+  │   线性扫描 Best-fit 分配器
+  │   设置 in_addr / out_addr / in2_addr
+  │   峰值内存占用比 Ping-Pong 减少 ~25%
+  │
+  ▼  Pass 5: coa-addr-assign  [可配置 weight-base / bias-base]
   │   权重/偏置：顺序线性追加
-  │   激活：Ping-Pong 双缓冲（交替两个地址池）
   │   计算量化因子：factor = round(s_in * s_w / s_out * 2^15)
   │
-  ▼  Pass 5: coa-legalize
+  ▼  Pass 6: coa-legalize
   │   验证所有 VLIW 位域不超出硬件约束
   │   发现溢出立即 signalPassFailure() 并打印诊断信息
   │
-  ▼  Pass 6: coa-vliw-gen  [可配置输出文件]
+  ▼  Pass 7: coa-vliw-gen  [可配置输出文件]
      将每个算子打包为 64 字节 VLIW 指令
      写出 N * 64 字节二进制文件
 
@@ -716,9 +743,13 @@ Level 3  —— 硬件层（coa-tiling + coa-addr-assign 填入）
 # coa-tiling 选项
 --coa-tiling="wdepth-limit=256 gdepth-limit=1024 odepth-limit=2048"
 
+# coa-mem-alloc 选项
+--coa-mem-alloc="act-base=268435456 verbose=false"
+# 十六进制等价：act-base=0x10000000
+
 # coa-addr-assign 选项
---coa-addr-assign="weight-base=134217728 bias-base=3221225472 act-base=268435456"
-# 十六进制等价：weight-base=0x08000000, bias-base=0xC0000000, act-base=0x10000000
+--coa-addr-assign="weight-base=134217728 bias-base=3221225472"
+# 十六进制等价：weight-base=0x08000000, bias-base=0xC0000000
 
 # coa-vliw-gen 选项
 --coa-vliw-gen="output=model.vliw"

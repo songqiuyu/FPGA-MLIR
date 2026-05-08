@@ -2,6 +2,7 @@ add_mlir_dialect_library(MLIRCOATransforms
     ShapeInfer.cpp
     OpFusion.cpp
     Tiling.cpp
+    MemAlloc.cpp
     AddrAssign.cpp
     Legalize.cpp
     RegisterPasses.cpp

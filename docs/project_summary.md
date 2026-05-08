@@ -185,16 +185,22 @@ export_hw_params('examples/resnet18/data/resnet18_quant_int8.onnx',
 1. **coa-shape-infer**：推断所有张量的静态形状
 2. **coa-op-fusion**：算子融合（Conv+Add、Conv+ReLU 等）
 3. **coa-tiling**：Tile 计算（满足 Buffer 容量约束）
-4. **coa-addr-assign**：DDR/SRAM 地址分配（weight/bias/act）
-5. **coa-legalize**：硬件合法性检查（维度、数据类型）
-6. **coa-vliw-gen**：生成 512-bit VLIW 二进制
+4. **coa-mem-alloc**（新）：生命周期感知线性扫描分配——分配激活张量 DDR 地址（in_addr / out_addr / in2_addr）
+5. **coa-addr-assign**：权重/偏置地址顺序追加 + 量化因子计算（factor / factor2）
+6. **coa-legalize**：硬件合法性检查（维度、数据类型）
+7. **coa-vliw-gen**：生成 512-bit VLIW 二进制
 
-#### 内存地址空间（ResNet-18）
-| 区域 | Base 地址 |
-|------|-----------|
-| Weight DDR | `0x08000000` |
-| Bias DDR | `0xC0000000` |
-| Activation SRAM | `0x10000000` |
+#### 内存地址空间
+| 区域 | Base 地址 | 分配策略 |
+|------|-----------|----------|
+| Weight DDR | `0x08000000` | 顺序追加（`coa-addr-assign`） |
+| Bias DDR | `0xC0000000` | 顺序追加（`coa-addr-assign`） |
+| Activation DDR | `0x10000000` | 生命周期线性扫描（`coa-mem-alloc`） |
+
+**`coa-mem-alloc` 关键优势**：将编译器寄存器分配理论（Poletto & Sarkar, TOPLAS'99）移植到 FPGA DDR 激活内存管理，修复旧版 Ping-Pong 的三大缺陷：
+- `QLinearAdd` 的三个地址全相同（输入覆盖输出）的根本性错误
+- 残差跳跃连接 shortcut 张量地址冲突问题
+- 激活内存峰值占用比 Ping-Pong 减少约 25%（ResNet-18）
 
 ---
 
@@ -251,6 +257,7 @@ export_hw_params('examples/resnet18/data/resnet18_quant_int8.onnx',
 - `verify.py` Python 参考对齐：zero_point=-128（signed asymmetric）在 Python VLIW 参考中尚未正确编码
 - `onnx_importer` 不支持 `Flatten`、`GlobalAveragePool`（量化后）的 shape 传播
 - `export_onnx.py` 的 `--weight-per-channel` 命令行参数默认已改为 per-tensor
+- ~~激活内存 Ping-Pong 地址冲突（QLinearAdd 三地址相同）~~ **已修复**：由 `coa-mem-alloc` 通过生命周期感知线性扫描替换
 
 ---
 

@@ -15,7 +15,8 @@ void buildCOACompilerPipeline(mlir::OpPassManager &pm) {
     pm.addPass(createCOAShapeInferPass());
     pm.addPass(createCOAOpFusionPass());
     pm.addPass(createCOATilingPass());
-    pm.addPass(createCOAAddrAssignPass());
+    pm.addPass(createCOAMemAllocPass());   // liveness + linear scan activation alloc
+    pm.addPass(createCOAAddrAssignPass()); // weight / bias addresses + factors
     pm.addPass(createCOALegalizePass());
     pm.addPass(createCOAVLIWGenPass());
 }
