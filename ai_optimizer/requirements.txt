@@ -1,0 +1,23 @@
+# AI Optimizer requirements
+# Install with: pip install -r ai_optimizer/requirements.txt
+
+# ---- Core (required) ----
+numpy>=1.24
+onnx>=1.14
+
+# ---- Phase 3-A: Tiling Search ----
+optuna>=3.0              # Bayesian optimization (bayesian_opt.py)
+torch>=2.0               # RL agent (rl_agent.py)
+
+# ---- Phase 3-B: Op Fusion GNN ----
+torch>=2.0
+torch-geometric>=2.3     # GNN (gnn_model.py, graph_builder.py)
+# Also requires: torch-scatter, torch-sparse (see PyG install guide)
+# pip install pyg_lib torch_scatter torch_sparse -f https://data.pyg.org/whl/torch-2.0.0+cpu.html
+
+# ---- Phase 3-C: AutoQuant ----
+pymoo>=0.6               # NSGA-II multi-objective optimization (pareto_search.py)
+
+# ---- Visualization (optional) ----
+matplotlib>=3.7          # Pareto frontier plots
+pandas>=2.0              # Result tables
