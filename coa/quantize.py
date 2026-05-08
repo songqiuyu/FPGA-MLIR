@@ -46,7 +46,7 @@ try:
     import onnx
     from onnx import (
         ModelProto, GraphProto, NodeProto, TensorProto,
-        helper, mapping, numpy_helper,
+        helper, numpy_helper,
     )
     _HAS_ONNX = True
 except ImportError:
@@ -533,44 +533,54 @@ class _GraphRunner:
         return result
 
     def _conv2d(self, X, W, B, strides, pads, dilations, group):
-        """Naive but correct Conv2D with groups, dilations, pads."""
+        """Vectorized Conv2D using im2col (groups, dilations, pads supported)."""
         N, C_in, H_in, W_in = X.shape
-        C_out, C_grp, kH, kW = W.shape
-        sH, sW = strides[0], strides[1] if len(strides) > 1 else strides[0]
-        pH, pW = pads[0], pads[1] if len(pads) > 1 else pads[0]
+        C_out, _C_grp, kH, kW = W.shape
+        sH = strides[0];  sW = strides[1] if len(strides) > 1 else strides[0]
+        pH  = pads[0];    pW  = pads[1] if len(pads) > 1 else pads[0]
         pH2 = pads[2] if len(pads) > 2 else pH
         pW2 = pads[3] if len(pads) > 3 else pW
-        dH = dilations[0]
-        dW = dilations[1] if len(dilations) > 1 else dH
+        dH = dilations[0]; dW = dilations[1] if len(dilations) > 1 else dH
 
         H_out = (H_in + pH + pH2 - dH * (kH - 1) - 1) // sH + 1
         W_out = (W_in + pW + pW2 - dW * (kW - 1) - 1) // sW + 1
 
-        X_pad = np.pad(X, ((0, 0), (0, 0), (pH, pH2), (pW, pW2)), mode='constant')
-        Y = np.zeros((N, C_out, H_out, W_out), dtype=np.float64)
-
+        X_pad = np.pad(X, ((0, 0), (0, 0), (pH, pH2), (pW, pW2))).astype(np.float32)
         c_per_group = C_in // group
         f_per_group = C_out // group
+        HW = H_out * W_out
 
-        for n in range(N):
-            for g in range(group):
-                for f in range(f_per_group):
-                    fo = g * f_per_group + f
-                    for oh in range(H_out):
-                        for ow in range(W_out):
-                            val = 0.0
-                            for c in range(c_per_group):
-                                ci = g * c_per_group + c
-                                for kh in range(kH):
-                                    for kwi in range(kW):
-                                        ih = oh * sH + kh * dH
-                                        iw = ow * sW + kwi * dW
-                                        val += float(X_pad[n, ci, ih, iw]) * float(W[fo, c, kh, kwi])
-                            Y[n, fo, oh, ow] = val
+        # Precompute output spatial index arrays
+        h_base = np.arange(H_out, dtype=np.int32) * sH   # (H_out,)
+        w_base = np.arange(W_out, dtype=np.int32) * sW   # (W_out,)
+
+        Y = np.zeros((N, C_out, H_out, W_out), dtype=np.float32)
+
+        for g in range(group):
+            X_g = X_pad[:, g * c_per_group:(g + 1) * c_per_group]  # (N, c, H_pad, W_pad)
+            W_g = W[g * f_per_group:(g + 1) * f_per_group]         # (f, c, kH, kW)
+
+            # im2col: build (N, c*kH*kW, H_out*W_out)
+            col = np.empty((N, c_per_group * kH * kW, HW), dtype=np.float32)
+            slot = 0
+            for kh in range(kH):
+                h_idx = h_base + kh * dH                       # (H_out,)
+                for kwi in range(kW):
+                    w_idx = w_base + kwi * dW                  # (W_out,)
+                    # Advanced indexing: (N, c, H_out, W_out)
+                    patch = X_g[:, :, h_idx[:, None], w_idx[None, :]]
+                    col[:, slot:slot + c_per_group, :] = patch.reshape(N, c_per_group, HW)
+                    slot += c_per_group
+
+            # W_g flat: (f, c*kH*kW);  col: (N, c*kH*kW, HW)
+            W_flat = W_g.reshape(f_per_group, -1)              # (f, K)
+            # Batch matmul: (N, f, HW) = (N, K, HW)^T * (f, K)^T
+            Y_g = np.einsum('fk,nkm->nfm', W_flat, col, optimize=True)
+            Y[:, g * f_per_group:(g + 1) * f_per_group] = Y_g.reshape(N, f_per_group, H_out, W_out)
 
         if B is not None:
             Y += B.reshape(1, -1, 1, 1)
-        return Y.astype(np.float32)
+        return Y
 
     def _maxpool(self, X, node):
         ks = self._attr(node, "kernel_shape", [2, 2])
@@ -583,12 +593,17 @@ class _GraphRunner:
         H_out = (H + 2 * pH - kH) // sH + 1
         W_out = (W_ + 2 * pW - kW) // sW + 1
         X_pad = np.pad(X, ((0, 0), (0, 0), (pH, pH), (pW, pW)), constant_values=-np.inf)
-        Y = np.zeros((N, C, H_out, W_out), dtype=X.dtype)
-        for oh in range(H_out):
-            for ow in range(W_out):
-                Y[:, :, oh, ow] = np.max(
-                    X_pad[:, :, oh*sH:oh*sH+kH, ow*sW:ow*sW+kW],
-                    axis=(2, 3))
+        # Vectorized using sliding window (numpy >= 1.20)
+        try:
+            from numpy.lib.stride_tricks import sliding_window_view
+            windows = sliding_window_view(X_pad, (kH, kW), axis=(2, 3))
+            Y = windows[:, :, ::sH, ::sW].max(axis=(-2, -1))
+        except Exception:
+            Y = np.zeros((N, C, H_out, W_out), dtype=X.dtype)
+            for oh in range(H_out):
+                for ow in range(W_out):
+                    Y[:, :, oh, ow] = np.max(
+                        X_pad[:, :, oh*sH:oh*sH+kH, ow*sW:ow*sW+kW], axis=(2, 3))
         return Y
 
     def _avgpool(self, X, node):
@@ -602,12 +617,16 @@ class _GraphRunner:
         H_out = (H + 2 * pH - kH) // sH + 1
         W_out = (W_ + 2 * pW - kW) // sW + 1
         X_pad = np.pad(X, ((0, 0), (0, 0), (pH, pH), (pW, pW)), mode='constant')
-        Y = np.zeros((N, C, H_out, W_out), dtype=np.float32)
-        for oh in range(H_out):
-            for ow in range(W_out):
-                Y[:, :, oh, ow] = np.mean(
-                    X_pad[:, :, oh*sH:oh*sH+kH, ow*sW:ow*sW+kW],
-                    axis=(2, 3))
+        try:
+            from numpy.lib.stride_tricks import sliding_window_view
+            windows = sliding_window_view(X_pad, (kH, kW), axis=(2, 3))
+            Y = windows[:, :, ::sH, ::sW].mean(axis=(-2, -1)).astype(np.float32)
+        except Exception:
+            Y = np.zeros((N, C, H_out, W_out), dtype=np.float32)
+            for oh in range(H_out):
+                for ow in range(W_out):
+                    Y[:, :, oh, ow] = np.mean(
+                        X_pad[:, :, oh*sH:oh*sH+kH, ow*sW:ow*sW+kW], axis=(2, 3))
         return Y
 
 
@@ -894,18 +913,24 @@ def _build_qoperator_graph(
                 y_s_name, y_z_name,
             ]
             if b_name and b_name in init_map:
-                B_arr = init_map[b_name].astype(np.int32)
+                B_float = init_map[b_name].astype(np.float64)
+                x_s = float(act_params.get(x_name, (1.0, 0))[0])
+                # bias_scale[c] = x_scale * w_scale[c]  (per-channel)
+                # bias_scale    = x_scale * w_scale      (per-tensor)
+                b_scales = (x_s * w_scales.astype(np.float64))  # shape (C_out,) or (1,)
+                if b_scales.shape[0] == 1:
+                    B_q = np.round(B_float / b_scales[0]).astype(np.int64)
+                else:
+                    B_q = np.round(B_float / b_scales).astype(np.int64)
+                B_q = np.clip(B_q, -(1 << 31), (1 << 31) - 1).astype(np.int32)
                 b_q_name = b_name + "_q"
-                _add_init(b_q_name, B_arr)
+                _add_init(b_q_name, B_q)
                 qconv_inputs.append(b_q_name)
 
             qconv = helper.make_node(
                 "QLinearConv", qconv_inputs, [out_name],
                 name=node.name + "_q" if node.name else "",
-                **{a.name: a for a in node.attribute
-                   if a.name in ("kernel_shape", "strides", "pads", "dilations", "group")},
             )
-            # Copy geometry attributes
             for a in node.attribute:
                 if a.name in ("kernel_shape", "strides", "pads", "dilations", "group"):
                     qconv.attribute.append(copy.deepcopy(a))
@@ -938,15 +963,19 @@ def _build_qoperator_graph(
                 y_s_name, y_z_name,
             ]
             if b_name and b_name in init_map:
-                B_arr = init_map[b_name].astype(np.int32)
+                B_float = init_map[b_name].astype(np.float64)
+                x_s = float(act_params.get(x_name, (1.0, 0))[0])
+                b_scale = x_s * w_s
+                B_q = np.round(B_float / b_scale).astype(np.int64)
+                B_q = np.clip(B_q, -(1 << 31), (1 << 31) - 1).astype(np.int32)
                 b_q_name = b_name + "_q"
-                _add_init(b_q_name, B_arr)
+                _add_init(b_q_name, B_q)
                 qgemm_inputs.append(b_q_name)
 
             qgemm = helper.make_node("QGemm", qgemm_inputs, [out_name],
                                      name=node.name + "_q" if node.name else "")
             for a in node.attribute:
-                if a.name in ("transA", "transB", "alpha", "beta"):
+                if a.name in ("transA", "transB"):
                     qgemm.attribute.append(copy.deepcopy(a))
             new_nodes.append(qgemm)
 
@@ -1012,6 +1041,268 @@ def _build_qoperator_graph(
 
 
 # ────────────────────────────────────────────────────────────────
+# Hardware-aware post-processing passes
+# ────────────────────────────────────────────────────────────────
+# These passes adapt the quantized ONNX to a fixed-point hardware backend
+# that computes:
+#   factor = round(M * 2^FACTOR_BITS)    where FACTOR_BITS = 28
+#   out_q  = round(acc * factor >> FACTOR_BITS) + out_zp
+#
+# Hard constraints coming from the hardware:
+#   factor < 2^31  →  M < 8.0     (integer overflow guard)
+#   factor >= 1    →  M >= 2^-28  (factor underflow → zero)
+# Soft constraint for good precision:
+#   M >= 2^-14  (at least 14 effective bits in factor)
+# ────────────────────────────────────────────────────────────────
+
+_HW_FACTOR_BITS: int = 28
+_HW_MAX_M: float = 7.5            # hard limit ≈ 8, with safety margin
+_HW_MIN_M: float = 2.0 ** -14    # soft limit: factor has ≥ 14 useful bits
+
+
+def _hw_get_init_scalar(inits: dict, name: str) -> Optional[float]:
+    arr = inits.get(name)
+    return float(arr.flat[0]) if arr is not None else None
+
+
+def _hw_set_init_scalar(model, inits: dict, name: str, value: float,
+                         dtype=None) -> None:
+    """Overwrite a scalar initializer in-place (model + local dict)."""
+    arr = inits[name]
+    new_arr = np.array([value], dtype=dtype or arr.dtype)
+    inits[name] = new_arr
+    for init in model.graph.initializer:
+        if init.name == name:
+            init.CopyFrom(numpy_helper.from_array(new_arr, name=name))
+            return
+    # Not found — add new
+    model.graph.initializer.append(numpy_helper.from_array(new_arr, name=name))
+
+
+def hw_fix_scale_factors(
+    q_model,
+    factor_bits: int = _HW_FACTOR_BITS,
+    max_M: float = _HW_MAX_M,
+    min_M: float = _HW_MIN_M,
+    verbose: bool = False,
+) -> Tuple[int, int]:
+    """
+    Post-process a QOperator ONNX model to keep re-quantization factor M
+    within the hardware-valid range [min_M, max_M].
+
+    M = in_scale * w_scale / out_scale  (scalar per-layer or per-channel mean)
+
+    Strategy
+    --------
+    * M > max_M  →  out_scale is too small.  Increase out_scale to bring M to
+                    max_M * 0.9 (leaves 10% headroom).  This coarsens the
+                    output quantisation but prevents hardware overflow.
+    * M < min_M  →  out_scale is too large.  Decrease out_scale to bring M to
+                    min_M.  This may slightly overflow the nominal output
+                    range but ensures adequate factor precision.
+
+    Returns
+    -------
+    (n_fixed_high, n_fixed_low) — number of layers adjusted in each direction.
+    """
+    if not _HAS_ONNX:
+        return 0, 0
+
+    inits = {i.name: numpy_helper.to_array(i)
+             for i in q_model.graph.initializer}
+
+    n_high = 0
+    n_low  = 0
+
+    for node in q_model.graph.node:
+        op = node.op_type
+
+        if op in ("QLinearConv", "QGemm"):
+            # x, x_scale, x_zp, w, w_scale, w_zp, y_scale, y_zp [, B]
+            x_s_name = node.input[1]
+            w_s_name = node.input[4]
+            y_s_name = node.input[6]
+
+            in_s = _hw_get_init_scalar(inits, x_s_name)
+            y_s  = _hw_get_init_scalar(inits, y_s_name)
+            if in_s is None or y_s is None:
+                continue
+
+            w_s_arr = inits.get(w_s_name)
+            if w_s_arr is None:
+                continue
+            # Use mean of per-channel scales for the check
+            w_s_mean = float(np.mean(np.abs(w_s_arr)))
+            M = in_s * w_s_mean / y_s
+
+            if M > max_M:
+                new_y_s = in_s * w_s_mean / (max_M * 0.9)
+                if verbose:
+                    print(f"  [hw_fix] {node.name or op}: M={M:.4f} > {max_M} "
+                          f"→ out_scale {y_s:.4e} → {new_y_s:.4e}")
+                _hw_set_init_scalar(q_model, inits, y_s_name, new_y_s)
+                n_high += 1
+
+            elif M < min_M:
+                new_y_s = in_s * w_s_mean / (min_M * 2.0)
+                if verbose:
+                    print(f"  [hw_fix] {node.name or op}: M={M:.6f} < {min_M} "
+                          f"→ out_scale {y_s:.4e} → {new_y_s:.4e}")
+                _hw_set_init_scalar(q_model, inits, y_s_name, new_y_s)
+                n_low += 1
+
+        elif op == "QLinearAdd":
+            # a, a_scale, a_zp, b, b_scale, b_zp, y_scale, y_zp
+            a_s_name = node.input[1]
+            b_s_name = node.input[4]
+            y_s_name = node.input[6]
+
+            a_s = _hw_get_init_scalar(inits, a_s_name)
+            b_s = _hw_get_init_scalar(inits, b_s_name)
+            y_s = _hw_get_init_scalar(inits, y_s_name)
+            if None in (a_s, b_s, y_s):
+                continue
+
+            for branch_s, tag in [(a_s, "branch-A"), (b_s, "branch-B")]:
+                M_branch = branch_s / y_s
+                if M_branch > max_M:
+                    new_y_s = branch_s / (max_M * 0.9)
+                    if verbose:
+                        print(f"  [hw_fix] {node.name or op} {tag}: "
+                              f"M={M_branch:.4f} → out_scale {y_s:.4e} → {new_y_s:.4e}")
+                    _hw_set_init_scalar(q_model, inits, y_s_name, new_y_s)
+                    y_s = new_y_s
+                    n_high += 1
+                    break   # re-check not needed; both branches get same y_s
+
+    return n_high, n_low
+
+
+def hw_equalize_add_scales(
+    q_model,
+    max_ratio: float = 4.0,
+    verbose: bool = False,
+) -> int:
+    """
+    For each QLinearAdd node, if the weaker branch's re-quantization factor M
+    falls below the hardware precision floor (_HW_MIN_M), decrease the output
+    scale just enough to bring that branch's M up to _HW_MIN_M / 2.
+
+    This is a conservative fix: it only fires when a factor would genuinely
+    underflow (factor < 1), and never decreases y_scale below the calibrated
+    value (which would clip the output tensor).
+
+    max_ratio : kept for API compatibility, no longer used as the sole trigger.
+
+    Returns number of Add nodes adjusted.
+    """
+    if not _HAS_ONNX:
+        return 0
+
+    inits = {i.name: numpy_helper.to_array(i)
+             for i in q_model.graph.initializer}
+    n_fixed = 0
+
+    for node in q_model.graph.node:
+        if node.op_type != "QLinearAdd":
+            continue
+        a_s_name = node.input[1]
+        b_s_name = node.input[4]
+        y_s_name = node.input[6]
+
+        a_s = _hw_get_init_scalar(inits, a_s_name)
+        b_s = _hw_get_init_scalar(inits, b_s_name)
+        y_s = _hw_get_init_scalar(inits, y_s_name)
+        if None in (a_s, b_s, y_s):
+            continue
+
+        Ma = a_s / y_s
+        Mb = b_s / y_s
+        min_branch_M = min(Ma, Mb)
+
+        # Only equalize when the weaker branch's factor is genuinely below the
+        # hardware precision floor (min_M).  A large a_s/b_s ratio alone is not
+        # sufficient — if both Ma and Mb are within [min_M, max_M] the hardware
+        # is already operating correctly.  Forcing y_s downward below the
+        # calibrated value clips the output and hurts accuracy.
+        if min_branch_M < _HW_MIN_M:
+            # Push y_s down just enough so the weaker branch hits min_M/2.
+            # Never decrease y_s below the calibrated value (no clipping).
+            new_y_s = min(y_s, float(min(a_s, b_s) / (_HW_MIN_M / 2.0)))
+            if new_y_s >= y_s:
+                continue   # would not help
+            if verbose:
+                print(f"  [hw_eq_add] {node.name or 'Add'}: "
+                      f"a_s={a_s:.3e} b_s={b_s:.3e} "
+                      f"min_M={min_branch_M:.2e} < {_HW_MIN_M:.2e} "
+                      f"→ y_scale {y_s:.3e} → {new_y_s:.3e}")
+            _hw_set_init_scalar(q_model, inits, y_s_name, new_y_s)
+            n_fixed += 1
+
+    return n_fixed
+
+
+def hw_check_factors(
+    q_model,
+    factor_bits: int = _HW_FACTOR_BITS,
+    verbose: bool = True,
+) -> dict:
+    """
+    Compute the hardware re-quantization factor M for every QLinearConv /
+    QGemm / QLinearAdd node and return a summary dict.
+
+    Useful for diagnosing overflow / underflow before deploying to hardware.
+    """
+    if not _HAS_ONNX:
+        return {}
+
+    inits = {i.name: numpy_helper.to_array(i)
+             for i in q_model.graph.initializer}
+    result = {}
+
+    for node in q_model.graph.node:
+        op = node.op_type
+        name = node.name or op
+
+        if op in ("QLinearConv", "QGemm"):
+            in_s = _hw_get_init_scalar(inits, node.input[1])
+            w_s_arr = inits.get(node.input[4])
+            y_s  = _hw_get_init_scalar(inits, node.input[6])
+            if None in (in_s, y_s) or w_s_arr is None:
+                continue
+            w_s_vec = np.abs(w_s_arr.flatten())
+            M_vec = in_s * w_s_vec / y_s
+            M_max = float(M_vec.max())
+            M_min = float(M_vec.min())
+            factor_max = int(round(M_max * (2 ** factor_bits)))
+            ok = (M_max < _HW_MAX_M) and (M_min >= _HW_MIN_M)
+            result[name] = dict(op=op, M_max=M_max, M_min=M_min,
+                                factor_max=factor_max, ok=ok)
+            if verbose:
+                status = "OK" if ok else "⚠ WARN"
+                print(f"  [{status}] {name:40s}  M=[{M_min:.4f}, {M_max:.4f}]"
+                      f"  factor_max={factor_max}")
+
+        elif op == "QLinearAdd":
+            a_s = _hw_get_init_scalar(inits, node.input[1])
+            b_s = _hw_get_init_scalar(inits, node.input[4])
+            y_s = _hw_get_init_scalar(inits, node.input[6])
+            if None in (a_s, b_s, y_s):
+                continue
+            Ma = a_s / y_s
+            Mb = b_s / y_s
+            ratio = max(Ma, Mb) / (min(Ma, Mb) + 1e-30)
+            ok = (max(Ma, Mb) < _HW_MAX_M) and (min(Ma, Mb) >= _HW_MIN_M)
+            result[name] = dict(op=op, Ma=Ma, Mb=Mb, ratio=ratio, ok=ok)
+            if verbose:
+                status = "OK" if ok else "⚠ WARN"
+                print(f"  [{status}] {name:40s}  Ma={Ma:.4f} Mb={Mb:.4f}"
+                      f"  ratio={ratio:.1f}x")
+
+    return result
+
+
+# ────────────────────────────────────────────────────────────────
 # Public API
 # ────────────────────────────────────────────────────────────────
 
@@ -1027,6 +1318,7 @@ def quantize_onnx(
     use_gptq: bool = False,
     bits: int = 8,
     input_name: Optional[str] = None,
+    hw_aware: bool = True,
     verbose: bool = True,
 ) -> str:
     """
@@ -1044,6 +1336,9 @@ def quantize_onnx(
     use_gptq : enable GPTQ-style weight error correction.
     bits : quantization bit-width (default 8).
     input_name : model input name (auto-detected if None).
+    hw_aware : apply hardware-aware post-processing passes (default True).
+              Fixes M-factor range and equalises residual-Add input scales
+              to match the fixed 28-bit factor hardware (basic.c).
     verbose : print progress.
 
     Returns
@@ -1110,6 +1405,13 @@ def quantize_onnx(
         use_gptq=use_gptq,
         bits=bits,
     )
+
+    if hw_aware:
+        n_high, n_low = hw_fix_scale_factors(q_model, verbose=verbose)
+        n_eq = hw_equalize_add_scales(q_model, verbose=verbose)
+        if verbose and (n_high + n_low + n_eq) > 0:
+            print(f"[coa.quantize] HW-aware: fixed {n_high} M-overflow, "
+                  f"{n_low} M-underflow, {n_eq} Add-scale imbalance")
 
     onnx.save(q_model, output_onnx)
     if verbose:

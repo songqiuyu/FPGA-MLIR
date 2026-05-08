@@ -1,0 +1,64 @@
+Exporting ResNet-18 from torchvision...
+Float inference:  1.54s
+
+Config                               1st-Conv SNR  ResBlk cos   FC cos  E2E top-1  E2E SNR   time
+──────────────────────────────────────────────────────────────────────────────────────────────────
+int8×int8  per-ch  minmax                   36.0dB      0.9999   1.0000          ✓    42.4dB   4.3s
+int8×int8  per-ch  entropy                  36.5dB      0.9921   1.0000          ✓    41.9dB  33.6s
+uint8×int8 per-ch  minmax                   36.4dB      1.0000   1.0000          ✓    42.6dB   2.8s
+int8×int8  per-ten minmax                   36.0dB      0.9999   1.0000          ✓    42.4dB   1.7s
+
+
+=== Per-layer SNR breakdown (int8×int8 per-channel minmax) ===
+Layer  Op           Output tensor                              SNR(dB)   cosine
+────────────────────────────────────────────────────────────────────────────────
+0      Conv         /conv1/Conv_output_0                         36.0    0.9999
+1      Relu         /relu/Relu_output_0                      (no quant)
+2      MaxPool      /maxpool/MaxPool_output_0                    40.5    1.0000
+3      Conv         /layer1/layer1.0/conv1/Conv_output_0         38.9    0.9999
+4      Relu         /layer1/layer1.0/relu/Relu_output_0          40.2    1.0000
+5      Conv         /layer1/layer1.0/conv2/Conv_output_0         38.4    0.9999
+6      Add          /layer1/layer1.0/Add_output_0                39.5    0.9999
+7      Relu         /layer1/layer1.0/relu_1/Relu_output_0        40.2    1.0000
+8      Conv         /layer1/layer1.1/conv1/Conv_output_0         39.0    0.9999
+9      Relu         /layer1/layer1.1/relu/Relu_output_0          38.5    0.9999
+10     Conv         /layer1/layer1.1/conv2/Conv_output_0         37.4    0.9999
+11     Add          /layer1/layer1.1/Add_output_0                39.6    0.9999
+12     Relu         /layer1/layer1.1/relu_1/Relu_output_0        40.4    1.0000
+13     Conv         /layer2/layer2.0/conv1/Conv_output_0         39.9    0.9999
+14     Relu         /layer2/layer2.0/relu/Relu_output_0          40.1    1.0000
+15     Conv         /layer2/layer2.0/conv2/Conv_output_0         38.6    0.9999
+16     Conv         /layer2/layer2.0/downsample/downsample.0/Conv_output_0     36.9    0.9999
+17     Add          /layer2/layer2.0/Add_output_0                39.9    0.9999
+18     Relu         /layer2/layer2.0/relu_1/Relu_output_0        40.3    1.0000
+19     Conv         /layer2/layer2.1/conv1/Conv_output_0         40.4    1.0000
+20     Relu         /layer2/layer2.1/relu/Relu_output_0          39.4    0.9999
+21     Conv         /layer2/layer2.1/conv2/Conv_output_0         39.1    0.9999
+22     Add          /layer2/layer2.1/Add_output_0                40.1    1.0000
+23     Relu         /layer2/layer2.1/relu_1/Relu_output_0        41.1    1.0000
+24     Conv         /layer3/layer3.0/conv1/Conv_output_0         40.0    0.9999
+25     Relu         /layer3/layer3.0/relu/Relu_output_0          40.4    1.0000
+26     Conv         /layer3/layer3.0/conv2/Conv_output_0         39.5    0.9999
+27     Conv         /layer3/layer3.0/downsample/downsample.0/Conv_output_0     34.1    0.9998
+28     Add          /layer3/layer3.0/Add_output_0                35.9    0.9999
+29     Relu         /layer3/layer3.0/relu_1/Relu_output_0        43.9    1.0000
+30     Conv         /layer3/layer3.1/conv1/Conv_output_0         40.8    1.0000
+31     Relu         /layer3/layer3.1/relu/Relu_output_0          40.9    1.0000
+32     Conv         /layer3/layer3.1/conv2/Conv_output_0         38.2    0.9999
+33     Add          /layer3/layer3.1/Add_output_0                38.8    0.9999
+34     Relu         /layer3/layer3.1/relu_1/Relu_output_0        38.7    0.9999
+35     Conv         /layer4/layer4.0/conv1/Conv_output_0         41.7    1.0000
+36     Relu         /layer4/layer4.0/relu/Relu_output_0          41.9    1.0000
+37     Conv         /layer4/layer4.0/conv2/Conv_output_0         42.3    1.0000
+38     Conv         /layer4/layer4.0/downsample/downsample.0/Conv_output_0     42.6    1.0000
+39     Add          /layer4/layer4.0/Add_output_0                41.7    1.0000
+40     Relu         /layer4/layer4.0/relu_1/Relu_output_0        41.3    1.0000
+41     Conv         /layer4/layer4.1/conv1/Conv_output_0         40.0    1.0000
+42     Relu         /layer4/layer4.1/relu/Relu_output_0          45.1    1.0000
+43     Conv         /layer4/layer4.1/conv2/Conv_output_0         40.7    1.0000
+44     Add          /layer4/layer4.1/Add_output_0                40.8    1.0000
+45     Relu         /layer4/layer4.1/relu_1/Relu_output_0        41.2    1.0000
+46     GlobalAveragePool /avgpool/GlobalAveragePool_output_0          44.2    1.0000
+47     Flatten      /Flatten_output_0                            44.2    1.0000
+48     Gemm         output                                       42.4    1.0000
+

@@ -10,7 +10,12 @@
 from .tiling import calculate_buffer_consumption, get_tile, buffer_utilization
 from .vliw import VLIW
 from .mlir_parser import parse_all_layers
-from .quantize import quantize_onnx
+from .quantize import (
+    quantize_onnx,
+    hw_fix_scale_factors,
+    hw_equalize_add_scales,
+    hw_check_factors,
+)
 from .pruning import prune_onnx
 
 __all__ = [
@@ -20,5 +25,8 @@ __all__ = [
     "VLIW",
     "parse_all_layers",
     "quantize_onnx",
+    "hw_fix_scale_factors",
+    "hw_equalize_add_scales",
+    "hw_check_factors",
     "prune_onnx",
 ]
