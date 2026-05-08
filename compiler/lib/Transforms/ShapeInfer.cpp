@@ -10,7 +10,6 @@
 
 #include "COA/COADialect.h"
 #include "COA/COAOps.h"
-#include "COA/COAPasses.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -18,10 +17,21 @@
 
 namespace mlir::coa {
 
-#define GEN_PASS_DEF_COASHAPEINFER
+#define GEN_PASS_CLASSES
 #include "COA/COAPasses.h.inc"
 
 namespace {
+
+/// Extract i-th int64 from an ArrayAttr (I64ArrayAttr element).
+static int64_t arrI(ArrayAttr a, unsigned i, int64_t def = 0) {
+    if (!a || i >= a.size()) return def;
+    return a[i].cast<IntegerAttr>().getInt();
+}
+/// Extract i-th int64 from an optional ArrayAttr.
+static int64_t optI(llvm::Optional<::mlir::ArrayAttr> a, unsigned i, int64_t def = 0) {
+    if (!a) return def;
+    return arrI(*a, i, def);
+}
 
 /// Compute output spatial dimension: (in + pad_begin + pad_end - (k-1)*d - 1) / s + 1
 static int64_t computeOutDim(int64_t in, int64_t k, int64_t s, int64_t pad_begin,
@@ -31,12 +41,12 @@ static int64_t computeOutDim(int64_t in, int64_t k, int64_t s, int64_t pad_begin
 
 /// Try to get ranked tensor shape; return empty if unranked.
 static SmallVector<int64_t> getShape(Value v) {
-    if (auto rt = dyn_cast<RankedTensorType>(v.getType()))
+    if (auto rt = v.getType().dyn_cast<RankedTensorType>())
         return SmallVector<int64_t>(rt.getShape().begin(), rt.getShape().end());
     return {};
 }
 
-struct COAShapeInferPass : public impl::COAShapeInferBase<COAShapeInferPass> {
+struct COAShapeInferPass : public COAShapeInferBase<COAShapeInferPass> {
     void runOnOperation() override {
         func::FuncOp funcOp = getOperation();
         OpBuilder builder(funcOp.getContext());
@@ -45,29 +55,30 @@ struct COAShapeInferPass : public impl::COAShapeInferBase<COAShapeInferPass> {
             builder.setInsertionPoint(op);
 
             if (auto conv = dyn_cast<QLinearConvOp>(op)) {
-                auto inShape = getShape(conv.getInput());
+                auto inShape = getShape(conv.input());
                 if (inShape.size() != 4) return;
 
                 // inShape: [N_batch, C_in, H_in, W_in]
                 int64_t H_in = inShape[2], W_in = inShape[3];
                 int64_t C_in = inShape[1];
 
-                auto kernel   = conv.getKernelShape();
-                auto strides  = conv.getStrides();
-                auto pads     = conv.getPads();
-                auto dilations = conv.getDilations();
+                auto kernel   = conv.kernel_shape();
+                auto strides  = conv.strides();
+                auto pads     = conv.pads();
+                auto dilations = conv.dilations();
 
-                int64_t kH = kernel[0], kW = kernel[1];
-                int64_t sH = strides[0], sW = strides[1];
-                int64_t pH0 = pads[0], pW0 = pads[1], pH1 = pads[2], pW1 = pads[3];
-                int64_t dH = dilations[0], dW = dilations[1];
+                int64_t kH = arrI(kernel,0,1),   kW = arrI(kernel,1,1);
+                int64_t sH = optI(strides,0,1),   sW = optI(strides,1,1);
+                int64_t pH0 = optI(pads,0,0), pW0 = optI(pads,1,0),
+                        pH1 = optI(pads,2,0), pW1 = optI(pads,3,0);
+                int64_t dH = optI(dilations,0,1), dW = optI(dilations,1,1);
 
                 int64_t H_out = computeOutDim(H_in, kH, sH, pH0, pH1, dH);
                 int64_t W_out = computeOutDim(W_in, kW, sW, pW0, pW1, dW);
 
                 // Output channels M from weight shape [M, C_in/group, kH, kW]
                 int64_t C_out = 0;
-                auto wShape = getShape(conv.getWeight());
+                auto wShape = getShape(conv.weight());
                 if (!wShape.empty()) C_out = wShape[0];
 
                 conv->setAttr("R",  builder.getI64IntegerAttr(H_out));
@@ -78,26 +89,27 @@ struct COAShapeInferPass : public impl::COAShapeInferBase<COAShapeInferPass> {
                 conv->setAttr("C0", builder.getI64IntegerAttr(W_in));
 
                 // sM_concat and M_concat default to M (no concat)
-                if (conv.getSMConcat() == 0)
+                if (conv.sM_concat() == 0)
                     conv->setAttr("sM_concat", builder.getI64IntegerAttr(C_out));
-                if (conv.getMConcat() == 0)
+                if (conv.M_concat() == 0)
                     conv->setAttr("M_concat",  builder.getI64IntegerAttr(C_out));
 
             } else if (auto pool = dyn_cast<MaxPoolOp>(op)) {
-                auto inShape = getShape(pool.getInput());
+                auto inShape = getShape(pool.input());
                 if (inShape.size() != 4) return;
 
                 int64_t H_in = inShape[2], W_in = inShape[3], C_in = inShape[1];
-                auto kernel  = pool.getKernelShape();
-                auto strides = pool.getStrides();
-                auto pads    = pool.getPads();
+                auto kernel  = pool.kernel_shape();
+                auto strides = pool.strides();
+                auto pads    = pool.pads();
 
-                int64_t kH = kernel[0], kW = kernel[1];
-                int64_t sH = strides[0], sW = strides[1];
-                int64_t pH = pads[0], pW = pads[1];
+                int64_t kH = arrI(kernel,0,2), kW = arrI(kernel,1,2);
+                int64_t sH = optI(strides,0,2), sW = optI(strides,1,2);
+                int64_t pH0 = optI(pads,0,0), pW0 = optI(pads,1,0),
+                        pH1 = optI(pads,2,0), pW1 = optI(pads,3,0);
 
-                int64_t H_out = computeOutDim(H_in, kH, sH, pH, pads[2], 1);
-                int64_t W_out = computeOutDim(W_in, kW, sW, pW, pads[3], 1);
+                int64_t H_out = computeOutDim(H_in, kH, sH, pH0, pH1, 1);
+                int64_t W_out = computeOutDim(W_in, kW, sW, pW0, pW1, 1);
 
                 pool->setAttr("R",  builder.getI64IntegerAttr(H_out));
                 pool->setAttr("C",  builder.getI64IntegerAttr(W_out));
@@ -107,7 +119,7 @@ struct COAShapeInferPass : public impl::COAShapeInferBase<COAShapeInferPass> {
                 pool->setAttr("C0", builder.getI64IntegerAttr(W_in));
 
             } else if (auto add = dyn_cast<QLinearAddOp>(op)) {
-                auto inShape = getShape(add.getA());
+                auto inShape = getShape(add.a());
                 if (inShape.size() != 4) return;
                 add->setAttr("R",  builder.getI64IntegerAttr(inShape[2]));
                 add->setAttr("C",  builder.getI64IntegerAttr(inShape[3]));
@@ -117,7 +129,7 @@ struct COAShapeInferPass : public impl::COAShapeInferBase<COAShapeInferPass> {
                 add->setAttr("C0", builder.getI64IntegerAttr(inShape[3]));
 
             } else if (auto gap = dyn_cast<QLinearGlobalAveragePoolOp>(op)) {
-                auto inShape = getShape(gap.getInput());
+                auto inShape = getShape(gap.input());
                 if (inShape.size() != 4) return;
                 gap->setAttr("R",  builder.getI64IntegerAttr(1));
                 gap->setAttr("C",  builder.getI64IntegerAttr(1));
@@ -128,8 +140,8 @@ struct COAShapeInferPass : public impl::COAShapeInferBase<COAShapeInferPass> {
 
             } else if (auto gemm = dyn_cast<QGemmOp>(op)) {
                 // Treat GEMM as 1x1 conv: [batch, N] x [M, N]^T -> [batch, M]
-                auto aShape = getShape(gemm.getA());
-                auto bShape = getShape(gemm.getB());
+                auto aShape = getShape(gemm.a());
+                auto bShape = getShape(gemm.b());
                 if (aShape.empty() || bShape.empty()) return;
 
                 int64_t N_in = aShape.back();
@@ -142,9 +154,9 @@ struct COAShapeInferPass : public impl::COAShapeInferBase<COAShapeInferPass> {
                 gemm->setAttr("R0", builder.getI64IntegerAttr(1));
                 gemm->setAttr("C0", builder.getI64IntegerAttr(1));
 
-                if (gemm.getSMConcat() == 0)
+                if (gemm.sM_concat() == 0)
                     gemm->setAttr("sM_concat", builder.getI64IntegerAttr(M_out));
-                if (gemm.getMConcat() == 0)
+                if (gemm.M_concat() == 0)
                     gemm->setAttr("M_concat",  builder.getI64IntegerAttr(M_out));
             }
         });

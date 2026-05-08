@@ -25,6 +25,7 @@
 #include "mlir/InitAllDialects.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Pass/PassRegistry.h"
 #include "mlir/Support/FileUtilities.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
@@ -83,8 +84,9 @@ int main(int argc, char **argv) {
     }
     srcMgr->AddNewSourceBuffer(std::move(inputFile), llvm::SMLoc());
 
+    ParserConfig parseConfig(&context);
     OwningOpRef<ModuleOp> module =
-        parseSourceFile<ModuleOp>(srcMgr, &context);
+        parseSourceFile<ModuleOp>(*srcMgr, parseConfig);
     if (!module) {
         llvm::errs() << "coa-compiler: Failed to parse input MLIR\n";
         return 1;
@@ -99,22 +101,22 @@ int main(int argc, char **argv) {
     funcPM.addPass(coa::createCOAShapeInferPass());
     funcPM.addPass(coa::createCOAOpFusionPass());
 
-    // Tiling with configurable limits
+    // Tiling with configurable limits (use pipeline string for MLIR 15 options)
     {
-        coa::COATilingOptions tilingOpts;
-        tilingOpts.wdepthLimit = WdepthLimit;
-        tilingOpts.gdepthLimit = GdepthLimit;
-        tilingOpts.odepthLimit = OdepthLimit;
-        funcPM.addPass(coa::createCOATilingPass(tilingOpts));
+        std::string spec = "coa-tiling{wdepth-limit=" + std::to_string((int64_t)WdepthLimit)
+                         + " gdepth-limit=" + std::to_string((int64_t)GdepthLimit)
+                         + " odepth-limit=" + std::to_string((int64_t)OdepthLimit) + "}";
+        if (failed(mlir::parsePassPipeline(spec, funcPM, llvm::errs())))
+            return 1;
     }
 
     // Address assignment with configurable bases
     {
-        coa::COAAddrAssignOptions addrOpts;
-        addrOpts.weightBase    = WeightBase;
-        addrOpts.biasBase      = BiasBase;
-        addrOpts.activationBase = ActBase;
-        funcPM.addPass(coa::createCOAAddrAssignPass(addrOpts));
+        std::string spec = "coa-addr-assign{weight-base=" + std::to_string((int64_t)WeightBase)
+                         + " bias-base=" + std::to_string((int64_t)BiasBase)
+                         + " act-base=" + std::to_string((int64_t)ActBase) + "}";
+        if (failed(mlir::parsePassPipeline(spec, funcPM, llvm::errs())))
+            return 1;
     }
 
     if (!SkipLegalize)
@@ -122,9 +124,9 @@ int main(int argc, char **argv) {
 
     // VLIW generation
     {
-        coa::COAVLIWGenOptions vliwOpts;
-        vliwOpts.outputFile = OutputFilename;
-        funcPM.addPass(coa::createCOAVLIWGenPass(vliwOpts));
+        std::string spec = "coa-vliw-gen{output=" + std::string(OutputFilename) + "}";
+        if (failed(mlir::parsePassPipeline(spec, funcPM, llvm::errs())))
+            return 1;
     }
 
     // --- Run the pipeline ---

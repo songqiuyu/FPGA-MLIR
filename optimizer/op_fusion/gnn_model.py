@@ -58,7 +58,7 @@ def label_pair(src_op: str, dst_op: str) -> int:
     return 0  # conservative default
 
 
-class FusionGAT(nn.Module):
+class FusionGAT(nn.Module if _HAS_PYG else object):
     """
     GAT-based edge classifier for op fusion.
 

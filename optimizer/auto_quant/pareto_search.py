@@ -40,7 +40,7 @@ except ImportError:
 BITS_MAP = {0: 4, 1: 8, 2: 16}
 
 
-class MixedPrecisionProblem(ElementwiseProblem):
+class MixedPrecisionProblem(ElementwiseProblem if _HAS_PYMOO else object):
     """
     Multi-objective optimisation problem for mixed-precision quantization.
 

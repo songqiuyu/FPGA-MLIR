@@ -9,7 +9,6 @@ Install: pip install torch numpy optuna
 """
 
 import os
-import sys
 import json
 import random
 import math
@@ -18,9 +17,8 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'legacy', 'tools'))
-from assign_addr import get_tile
-from env import TilingEnv
+from coa.tiling import get_tile
+from .env import TilingEnv
 
 try:
     import torch
@@ -44,7 +42,7 @@ TARGET_SYNC  = 50   # steps between target network updates
 TRAIN_STEPS  = 5_000
 
 
-class QNetwork(nn.Module):
+class QNetwork(nn.Module if _HAS_TORCH else object):
     """Lightweight 3-layer MLP Q-network."""
 
     def __init__(self, state_dim: int, n_actions: int, hidden: int = 128):
@@ -76,7 +74,7 @@ class ReplayBuffer:
         return len(self.buf)
 
 
-class DQNAgent:
+class DQNAgent(object):
     """DQN agent that learns a tiling policy over a distribution of layer shapes."""
 
     def __init__(self, state_dim: int = TilingEnv.STATE_DIM,

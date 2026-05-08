@@ -9,7 +9,6 @@
 
 #include "COA/COADialect.h"
 #include "COA/COAOps.h"
-#include "COA/COAPasses.h"
 #include "COA/VLIWDefs.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/Pass.h"
@@ -19,7 +18,7 @@
 
 namespace mlir::coa {
 
-#define GEN_PASS_DEF_COAVLIWGEN
+#define GEN_PASS_CLASSES
 #include "COA/COAPasses.h.inc"
 
 //===----------------------------------------------------------------------===//
@@ -85,7 +84,7 @@ std::array<uint8_t, 64> VLIW::toBytes() const {
 
 std::string VLIW::repr() const {
     return "VLIW(op=" + std::to_string(op) +
-           " ddr_x1=0x" + llvm::utohexstr(ddr_x1) +
+           " ddr_x1=0x" + [](uint64_t v){ char buf[17]; snprintf(buf,sizeof(buf),"%llx",(unsigned long long)v); return std::string(buf); }(ddr_x1) +
            " R=" + std::to_string(R) + " C=" + std::to_string(C) +
            " M=" + std::to_string(M) + " N=" + std::to_string(N) + ")";
 }
@@ -106,125 +105,134 @@ std::vector<uint8_t> packVLIWs(const std::vector<VLIW> &instrs) {
 
 namespace {
 
+static int64_t arrI(ArrayAttr a, unsigned i, int64_t def = 0) {
+    if (!a || i >= a.size()) return def;
+    return a[i].cast<IntegerAttr>().getInt();
+}
+static int64_t optI(llvm::Optional<::mlir::ArrayAttr> a, unsigned i, int64_t def = 0) {
+    if (!a) return def;
+    return arrI(*a, i, def);
+}
+
 /// Build a VLIW from a qlinearconv op.
 static VLIW buildConvVLIW(QLinearConvOp conv) {
     VLIW v;
     v.op          = static_cast<uint8_t>(VLIWOperator::Conv);
-    v.ddr_x1      = static_cast<uint64_t>(conv.getInAddr());
-    v.ddr_x2      = static_cast<uint64_t>(conv.getWeightAddr());
-    v.bias_addr   = static_cast<uint32_t>(conv.getBiasAddr() & 0x7FF);
-    v.result_addr = static_cast<uint64_t>(conv.getOutAddr());
-    v.lut_addr    = static_cast<uint8_t>((conv.getSiluAddr() >> 24) & 0xFF);
-    v.R  = static_cast<uint16_t>(conv.getR());
-    v.C  = static_cast<uint16_t>(conv.getC());
-    v.M  = static_cast<uint16_t>(conv.getM());
-    v.N  = static_cast<uint16_t>(conv.getN());
-    v.R0 = static_cast<uint16_t>(conv.getR0());
-    v.C0 = static_cast<uint16_t>(conv.getC0());
-    v.sM_concat = static_cast<uint16_t>(conv.getSMConcat());
-    v.M_concat  = static_cast<uint16_t>(conv.getMConcat());
-    v.quant_x1_z = static_cast<int8_t>(conv.getInZp());
+    v.ddr_x1      = static_cast<uint64_t>(conv.in_addr());
+    v.ddr_x2      = static_cast<uint64_t>(conv.weight_addr());
+    v.bias_addr   = static_cast<uint32_t>(conv.bias_addr() & 0x7FF);
+    v.result_addr = static_cast<uint64_t>(conv.out_addr());
+    v.lut_addr    = static_cast<uint8_t>((conv.silu_addr() >> 24) & 0xFF);
+    v.R  = static_cast<uint16_t>(conv.R());
+    v.C  = static_cast<uint16_t>(conv.C());
+    v.M  = static_cast<uint16_t>(conv.M());
+    v.N  = static_cast<uint16_t>(conv.N());
+    v.R0 = static_cast<uint16_t>(conv.R0());
+    v.C0 = static_cast<uint16_t>(conv.C0());
+    v.sM_concat = static_cast<uint16_t>(conv.sM_concat());
+    v.M_concat  = static_cast<uint16_t>(conv.M_concat());
+    v.quant_x1_z = static_cast<int8_t>(conv.in_zp());
     v.quant_x2_z = 0; // per-channel weight ZP handled by factor
-    v.quant_y_z  = static_cast<int8_t>(conv.getOutZp());
-    auto pads = conv.getPads();
-    auto k    = conv.getKernelShape();
-    auto s    = conv.getStrides();
-    auto d    = conv.getDilations();
-    v.pad      = static_cast<uint8_t>(pads[0]);
-    v.kernel   = static_cast<uint8_t>(k[0]);
-    v.stride   = static_cast<uint8_t>(s[0]);
-    v.dilation = static_cast<uint8_t>(d[0]);
-    v.tR = static_cast<uint16_t>(conv.getTR());
-    v.tC = static_cast<uint16_t>(conv.getTC());
-    v.tM = static_cast<uint16_t>(conv.getTM());
-    v.tN = static_cast<uint16_t>(conv.getN());
-    v.quant_factor = conv.getFactor();
+    v.quant_y_z  = static_cast<int8_t>(conv.out_zp());
+    auto pads = conv.pads();
+    auto k    = conv.kernel_shape();
+    auto s    = conv.strides();
+    auto d    = conv.dilations();
+    v.pad      = static_cast<uint8_t>(optI(pads,0,0));
+    v.kernel   = static_cast<uint8_t>(arrI(k,0,1));
+    v.stride   = static_cast<uint8_t>(optI(s,0,1));
+    v.dilation = static_cast<uint8_t>(optI(d,0,1));
+    v.tR = static_cast<uint16_t>(conv.tR());
+    v.tC = static_cast<uint16_t>(conv.tC());
+    v.tM = static_cast<uint16_t>(conv.tM());
+    v.tN = static_cast<uint16_t>(conv.N());
+    v.quant_factor = conv.factor();
     return v;
 }
 
 static VLIW buildPoolVLIW(MaxPoolOp pool) {
     VLIW v;
     v.op          = static_cast<uint8_t>(VLIWOperator::Pool);
-    v.ddr_x1      = static_cast<uint64_t>(pool.getInAddr());
-    v.result_addr = static_cast<uint64_t>(pool.getOutAddr());
-    v.R  = static_cast<uint16_t>(pool.getR());
-    v.C  = static_cast<uint16_t>(pool.getC());
-    v.M  = static_cast<uint16_t>(pool.getM());
-    v.N  = static_cast<uint16_t>(pool.getN());
-    v.R0 = static_cast<uint16_t>(pool.getR0());
-    v.C0 = static_cast<uint16_t>(pool.getC0());
-    auto k = pool.getKernelShape();
-    auto s = pool.getStrides();
-    auto p = pool.getPads();
-    v.kernel = static_cast<uint8_t>(k[0]);
-    v.stride = static_cast<uint8_t>(s[0]);
-    v.pad    = static_cast<uint8_t>(p[0]);
-    v.tR = static_cast<uint16_t>(pool.getTR());
-    v.tC = static_cast<uint16_t>(pool.getTC());
-    v.tM = static_cast<uint16_t>(pool.getTM());
-    v.tN = static_cast<uint16_t>(pool.getN());
+    v.ddr_x1      = static_cast<uint64_t>(pool.in_addr());
+    v.result_addr = static_cast<uint64_t>(pool.out_addr());
+    v.R  = static_cast<uint16_t>(pool.R());
+    v.C  = static_cast<uint16_t>(pool.C());
+    v.M  = static_cast<uint16_t>(pool.M());
+    v.N  = static_cast<uint16_t>(pool.N());
+    v.R0 = static_cast<uint16_t>(pool.R0());
+    v.C0 = static_cast<uint16_t>(pool.C0());
+    auto k = pool.kernel_shape();
+    auto s = pool.strides();
+    auto p = pool.pads();
+    v.kernel = static_cast<uint8_t>(arrI(k,0,2));
+    v.stride = static_cast<uint8_t>(optI(s,0,2));
+    v.pad    = static_cast<uint8_t>(optI(p,0,0));
+    v.tR = static_cast<uint16_t>(pool.tR());
+    v.tC = static_cast<uint16_t>(pool.tC());
+    v.tM = static_cast<uint16_t>(pool.tM());
+    v.tN = static_cast<uint16_t>(pool.N());
     return v;
 }
 
 static VLIW buildAddVLIW(QLinearAddOp add) {
     VLIW v;
     v.op          = static_cast<uint8_t>(VLIWOperator::Add);
-    v.ddr_x1      = static_cast<uint64_t>(add.getInAddr());
-    v.ddr_x2      = static_cast<uint64_t>(add.getIn2Addr());
-    v.result_addr = static_cast<uint64_t>(add.getOutAddr());
-    v.R  = static_cast<uint16_t>(add.getR());
-    v.C  = static_cast<uint16_t>(add.getC());
-    v.M  = static_cast<uint16_t>(add.getM());
-    v.N  = static_cast<uint16_t>(add.getN());
-    v.R0 = static_cast<uint16_t>(add.getR0());
-    v.C0 = static_cast<uint16_t>(add.getC0());
-    v.quant_x1_z  = static_cast<int8_t>(add.getAZp());
-    v.quant_x2_z  = static_cast<int8_t>(add.getBZp());
-    v.quant_y_z   = static_cast<int8_t>(add.getOutZp());
-    v.quant_factor  = add.getFactor();
-    v.quant_factor2 = add.getFactor2();
+    v.ddr_x1      = static_cast<uint64_t>(add.in_addr());
+    v.ddr_x2      = static_cast<uint64_t>(add.in2_addr());
+    v.result_addr = static_cast<uint64_t>(add.out_addr());
+    v.R  = static_cast<uint16_t>(add.R());
+    v.C  = static_cast<uint16_t>(add.C());
+    v.M  = static_cast<uint16_t>(add.M());
+    v.N  = static_cast<uint16_t>(add.N());
+    v.R0 = static_cast<uint16_t>(add.R0());
+    v.C0 = static_cast<uint16_t>(add.C0());
+    v.quant_x1_z  = static_cast<int8_t>(add.a_zp());
+    v.quant_x2_z  = static_cast<int8_t>(add.b_zp());
+    v.quant_y_z   = static_cast<int8_t>(add.out_zp());
+    v.quant_factor  = add.factor();
+    v.quant_factor2 = add.factor2();
     return v;
 }
 
 static VLIW buildGAPVLIW(QLinearGlobalAveragePoolOp gap) {
     VLIW v;
     v.op          = static_cast<uint8_t>(VLIWOperator::GAP);
-    v.ddr_x1      = static_cast<uint64_t>(gap.getInAddr());
-    v.result_addr = static_cast<uint64_t>(gap.getOutAddr());
+    v.ddr_x1      = static_cast<uint64_t>(gap.in_addr());
+    v.result_addr = static_cast<uint64_t>(gap.out_addr());
     v.R  = 1;
     v.C  = 1;
-    v.M  = static_cast<uint16_t>(gap.getM());
-    v.N  = static_cast<uint16_t>(gap.getN());
-    v.R0 = static_cast<uint16_t>(gap.getR0());
-    v.C0 = static_cast<uint16_t>(gap.getC0());
-    v.quant_x1_z = static_cast<int8_t>(gap.getInZp());
-    v.quant_y_z  = static_cast<int8_t>(gap.getOutZp());
+    v.M  = static_cast<uint16_t>(gap.M());
+    v.N  = static_cast<uint16_t>(gap.N());
+    v.R0 = static_cast<uint16_t>(gap.R0());
+    v.C0 = static_cast<uint16_t>(gap.C0());
+    v.quant_x1_z = static_cast<int8_t>(gap.in_zp());
+    v.quant_y_z  = static_cast<int8_t>(gap.out_zp());
     return v;
 }
 
 static VLIW buildGemmVLIW(QGemmOp gemm) {
     VLIW v;
     v.op          = static_cast<uint8_t>(VLIWOperator::Conv); // GEMM = Conv type
-    v.ddr_x1      = static_cast<uint64_t>(gemm.getInAddr());
-    v.ddr_x2      = static_cast<uint64_t>(gemm.getWeightAddr());
-    v.bias_addr   = static_cast<uint32_t>(gemm.getBiasAddr() & 0x7FF);
-    v.result_addr = static_cast<uint64_t>(gemm.getOutAddr());
+    v.ddr_x1      = static_cast<uint64_t>(gemm.in_addr());
+    v.ddr_x2      = static_cast<uint64_t>(gemm.weight_addr());
+    v.bias_addr   = static_cast<uint32_t>(gemm.bias_addr() & 0x7FF);
+    v.result_addr = static_cast<uint64_t>(gemm.out_addr());
     v.R  = 1; v.C = 1; v.R0 = 1; v.C0 = 1;
-    v.M  = static_cast<uint16_t>(gemm.getM());
-    v.N  = static_cast<uint16_t>(gemm.getN());
-    v.sM_concat = static_cast<uint16_t>(gemm.getSMConcat());
-    v.M_concat  = static_cast<uint16_t>(gemm.getMConcat());
-    v.quant_x1_z = static_cast<int8_t>(gemm.getAZp());
-    v.quant_y_z  = static_cast<int8_t>(gemm.getOutZp());
+    v.M  = static_cast<uint16_t>(gemm.M());
+    v.N  = static_cast<uint16_t>(gemm.N());
+    v.sM_concat = static_cast<uint16_t>(gemm.sM_concat());
+    v.M_concat  = static_cast<uint16_t>(gemm.M_concat());
+    v.quant_x1_z = static_cast<int8_t>(gemm.a_zp());
+    v.quant_y_z  = static_cast<int8_t>(gemm.out_zp());
     v.kernel = 1; v.stride = 1; v.dilation = 1; v.pad = 0;
-    v.tM = static_cast<uint16_t>(gemm.getTM());
+    v.tM = static_cast<uint16_t>(gemm.tM());
     v.tR = 1; v.tC = 1;
-    v.tN = static_cast<uint16_t>(gemm.getN());
-    v.quant_factor = gemm.getFactor();
+    v.tN = static_cast<uint16_t>(gemm.N());
+    v.quant_factor = gemm.factor();
     return v;
 }
 
-struct COAVLIWGenPass : public impl::COAVLIWGenBase<COAVLIWGenPass> {
+struct COAVLIWGenPass : public COAVLIWGenBase<COAVLIWGenPass> {
     void runOnOperation() override {
         func::FuncOp funcOp = getOperation();
         std::vector<VLIW> instrs;

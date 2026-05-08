@@ -10,23 +10,18 @@ import tempfile
 import unittest
 import numpy as np
 
-AI_DIR = os.path.join(os.path.dirname(__file__), '..', 'optimizer')
-
 
 class TestTilingEnv(unittest.TestCase):
     """Tests for the RL tiling environment."""
 
-    def setUp(self):
-        sys.path.insert(0, os.path.join(AI_DIR, 'tiling_search'))
-
     def test_reset_returns_correct_shape(self):
-        from env import TilingEnv
+        from optimizer.tiling_search.env import TilingEnv
         env = TilingEnv(N=64, M=64, R=56, C=56, k=3, s=1, d=1)
         obs = env.reset()
         self.assertEqual(obs.shape, (TilingEnv.STATE_DIM,))
 
     def test_all_actions_executable(self):
-        from env import TilingEnv
+        from optimizer.tiling_search.env import TilingEnv
         env = TilingEnv(N=64, M=64, R=56, C=56, k=3, s=1, d=1)
         for action in range(TilingEnv.N_ACTIONS):
             env.reset()
@@ -36,14 +31,14 @@ class TestTilingEnv(unittest.TestCase):
             self.assertIsInstance(done, bool)
 
     def test_done_action_terminates(self):
-        from env import TilingEnv
+        from optimizer.tiling_search.env import TilingEnv
         env = TilingEnv(N=64, M=64, R=56, C=56)
         env.reset()
         _, _, done, _ = env.step(8)  # action 8 = done
         self.assertTrue(done)
 
     def test_initial_tile_equals_full_dims(self):
-        from env import TilingEnv
+        from optimizer.tiling_search.env import TilingEnv
         env = TilingEnv(N=64, M=128, R=28, C=28)
         env.reset()
         self.assertEqual(env.tM, 128)
@@ -52,10 +47,7 @@ class TestTilingEnv(unittest.TestCase):
 
     def test_buffer_utilization_legal(self):
         """Buffer utilization must be <= 1.0 after get_tile() produces a legal tile."""
-        import sys, os
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'legacy', 'tools'))
-        from assign_addr import get_tile
-        from env import buffer_utilization
+        from coa.tiling import get_tile, buffer_utilization
         N, M, R, C, k, s, d = 64, 128, 28, 28, 3, 1, 1
         tM, tR, tC = get_tile(N, M, R, C, k, s, 0, d)
         wU, gU, oU = buffer_utilization(N, tM, tR, tC, N, M, k, s, d)
@@ -91,9 +83,6 @@ module {
 }
 """
 
-    def setUp(self):
-        sys.path.insert(0, os.path.join(AI_DIR, 'op_fusion'))
-
     def _write_mlir(self, text: str) -> str:
         with tempfile.NamedTemporaryFile(mode='w', suffix='.mlir',
                                          delete=False, encoding='utf-8') as f:
@@ -101,7 +90,7 @@ module {
             return f.name
 
     def test_graph_parsing(self):
-        from graph_builder import build_graph_from_mlir
+        from optimizer.op_fusion.graph_builder import build_graph_from_mlir
         tmp = self._write_mlir(self.SAMPLE_MLIR)
         try:
             g = build_graph_from_mlir(tmp)
@@ -112,7 +101,7 @@ module {
             os.unlink(tmp)
 
     def test_edge_construction(self):
-        from graph_builder import build_graph_from_mlir
+        from optimizer.op_fusion.graph_builder import build_graph_from_mlir
         tmp = self._write_mlir(self.SAMPLE_MLIR)
         try:
             g = build_graph_from_mlir(tmp)
@@ -122,7 +111,7 @@ module {
             os.unlink(tmp)
 
     def test_candidate_pairs(self):
-        from graph_builder import build_graph_from_mlir, enumerate_candidate_pairs
+        from optimizer.op_fusion.graph_builder import build_graph_from_mlir, enumerate_candidate_pairs
         tmp = self._write_mlir(self.SAMPLE_MLIR)
         try:
             g = build_graph_from_mlir(tmp)
@@ -140,9 +129,6 @@ module {
 class TestSensitivity(unittest.TestCase):
     """Tests for AutoQuant sensitivity analysis."""
 
-    def setUp(self):
-        sys.path.insert(0, os.path.join(AI_DIR, 'auto_quant'))
-
     def _make_dummy_npz(self) -> str:
         """Create a temporary .npz file with synthetic weights."""
         data = {
@@ -155,7 +141,7 @@ class TestSensitivity(unittest.TestCase):
             return f.name
 
     def test_sensitivity_computation(self):
-        from sensitivity import compute_layer_sensitivity
+        from optimizer.auto_quant.sensitivity import compute_layer_sensitivity
         npz = self._make_dummy_npz()
         try:
             results = compute_layer_sensitivity(npz)
@@ -172,7 +158,7 @@ class TestSensitivity(unittest.TestCase):
             os.unlink(npz)
 
     def test_sensitivity_ranking(self):
-        from sensitivity import compute_layer_sensitivity, rank_layers_by_sensitivity
+        from optimizer.auto_quant.sensitivity import compute_layer_sensitivity, rank_layers_by_sensitivity
         npz = self._make_dummy_npz()
         try:
             sens    = compute_layer_sensitivity(npz)
@@ -189,7 +175,7 @@ class TestSensitivity(unittest.TestCase):
             os.unlink(npz)
 
     def test_bit_assignment_budget(self):
-        from sensitivity import (compute_layer_sensitivity,
+        from optimizer.auto_quant.sensitivity import (compute_layer_sensitivity,
                                  rank_layers_by_sensitivity, assign_bits_budget)
         npz = self._make_dummy_npz()
         try:
@@ -218,18 +204,15 @@ class TestMixedQuant(unittest.TestCase):
              ' weight_addr = 0x8000000, bias_addr = 0xC0000000'
              ' } : ()')
 
-    def setUp(self):
-        sys.path.insert(0, os.path.join(AI_DIR, 'auto_quant'))
-
     def test_8bit_unchanged(self):
-        from mixed_quant import apply_mixed_precision
+        from optimizer.auto_quant.mixed_quant import apply_mixed_precision
         bit_assignment = {"weight_layer1": 8}
         out = apply_mixed_precision(self.MLIR, bit_assignment)
         # 8-bit: line should be unchanged (no comment added)
         self.assertNotIn("mixed-prec", out)
 
     def test_4bit_modifies_scale(self):
-        from mixed_quant import apply_mixed_precision
+        from optimizer.auto_quant.mixed_quant import apply_mixed_precision
         bit_assignment = {"weight_layer1": 4}
         out = apply_mixed_precision(self.MLIR, bit_assignment)
         self.assertIn("mixed-prec: 4-bit", out)

@@ -14,7 +14,6 @@
 
 #include "COA/COADialect.h"
 #include "COA/COAOps.h"
-#include "COA/COAPasses.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Pass/Pass.h"
@@ -23,10 +22,19 @@
 
 namespace mlir::coa {
 
-#define GEN_PASS_DEF_COATILING
+#define GEN_PASS_CLASSES
 #include "COA/COAPasses.h.inc"
 
 namespace {
+
+static int64_t arrI(ArrayAttr a, unsigned i, int64_t def = 0) {
+    if (!a || i >= a.size()) return def;
+    return a[i].cast<IntegerAttr>().getInt();
+}
+static int64_t optI(llvm::Optional<::mlir::ArrayAttr> a, unsigned i, int64_t def = 0) {
+    if (!a) return def;
+    return arrI(*a, i, def);
+}
 
 /// Ceiling division.
 static int64_t ceilDiv(int64_t a, int64_t b) { return (a + b - 1) / b; }
@@ -108,7 +116,7 @@ getTile(int64_t N, int64_t M, int64_t R, int64_t C,
     return {tM, tR, tC};
 }
 
-struct COATilingPass : public impl::COATilingBase<COATilingPass> {
+struct COATilingPass : public COATilingBase<COATilingPass> {
     void runOnOperation() override {
         func::FuncOp funcOp = getOperation();
         OpBuilder builder(funcOp.getContext());
@@ -118,14 +126,14 @@ struct COATilingPass : public impl::COATilingBase<COATilingPass> {
             int64_t wLim = wdepthLimit, gLim = gdepthLimit, oLim = odepthLimit;
 
             if (auto conv = dyn_cast<QLinearConvOp>(op)) {
-                int64_t N = conv.getN(), M = conv.getM();
-                int64_t R = conv.getR(), C = conv.getC();
+                int64_t N = conv.N(), M = conv.M();
+                int64_t R = conv.R(), C = conv.C();
                 if (R == 0 || C == 0 || M == 0 || N == 0) return;
 
-                auto kernel  = conv.getKernelShape();
-                auto strides = conv.getStrides();
-                auto dils    = conv.getDilations();
-                int64_t k = kernel[0], s = strides[0], d = dils[0];
+                auto kernel  = conv.kernel_shape();
+                auto strides = conv.strides();
+                auto dils    = conv.dilations();
+                int64_t k = arrI(kernel,0,1), s = optI(strides,0,1), d = optI(dils,0,1);
 
                 auto [tM, tR, tC] = getTile(N, M, R, C, k, s, d, wLim, gLim, oLim);
                 conv->setAttr("tM", builder.getI64IntegerAttr(tM));
@@ -133,7 +141,7 @@ struct COATilingPass : public impl::COATilingBase<COATilingPass> {
                 conv->setAttr("tC", builder.getI64IntegerAttr(tC));
 
             } else if (auto gemm = dyn_cast<QGemmOp>(op)) {
-                int64_t N = gemm.getN(), M = gemm.getM();
+                int64_t N = gemm.N(), M = gemm.M();
                 if (M == 0 || N == 0) return;
                 // GEMM treated as 1x1 convolution
                 auto [tM, tR, tC] = getTile(N, M, 1, 1, 1, 1, 1, wLim, gLim, oLim);
@@ -142,18 +150,18 @@ struct COATilingPass : public impl::COATilingBase<COATilingPass> {
                 gemm->setAttr("tC", builder.getI64IntegerAttr(1));
 
             } else if (auto pool = dyn_cast<MaxPoolOp>(op)) {
-                int64_t R = pool.getR(), C = pool.getC(), M = pool.getM(), N = pool.getN();
+                int64_t R = pool.R(), C = pool.C(), M = pool.M(), N = pool.N();
                 if (R == 0 || C == 0) return;
-                auto kernel = pool.getKernelShape();
-                auto strides = pool.getStrides();
-                int64_t k = kernel[0], s = strides[0];
+                auto kernel = pool.kernel_shape();
+                auto strides = pool.strides();
+                int64_t k = arrI(kernel,0,2), s = optI(strides,0,2);
                 auto [tM, tR, tC] = getTile(N, M, R, C, k, s, 1, wLim, gLim, oLim);
                 pool->setAttr("tM", builder.getI64IntegerAttr(tM));
                 pool->setAttr("tR", builder.getI64IntegerAttr(tR));
                 pool->setAttr("tC", builder.getI64IntegerAttr(tC));
 
             } else if (auto add = dyn_cast<QLinearAddOp>(op)) {
-                int64_t R = add.getR(), C = add.getC(), M = add.getM();
+                int64_t R = add.R(), C = add.C(), M = add.M();
                 if (R == 0 || C == 0 || M == 0) return;
                 // For Add, tiling mirrors the spatial dimensions directly
                 auto [tM, tR, tC] = getTile(M, M, R, C, 1, 1, 1, wLim, gLim, oLim);

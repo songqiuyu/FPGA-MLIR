@@ -9,14 +9,11 @@ Output: A JSON lookup table that can be embedded into the --coa-tiling pass
 
 import json
 import math
-import sys
-import os
 from typing import Dict, List, Tuple
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'legacy', 'tools'))
-from assign_addr import calculate_buffer_consumption, get_tile
+from coa.tiling import calculate_buffer_consumption, get_tile
 
 try:
     import optuna

@@ -17,6 +17,7 @@ include "mlir/Pass/PassBase.td"
 
 def COAShapeInfer : Pass<"coa-shape-infer", "::mlir::func::FuncOp"> {
     let summary = "Infer and annotate tensor shapes for all COA ops.";
+    let constructor = "::mlir::coa::createCOAShapeInferPass()";
     let description = [{
         Walks the function body and fills in R, C, M, N, R0, C0 dimension
         attributes on each COA op based on the input tensor shapes and
@@ -34,6 +35,7 @@ def COAShapeInfer : Pass<"coa-shape-infer", "::mlir::func::FuncOp"> {
 
 def COAOpFusion : Pass<"coa-op-fusion", "::mlir::func::FuncOp"> {
     let summary = "Fuse Conv+Activation and Conv+Add patterns in the COA graph.";
+    let constructor = "::mlir::coa::createCOAOpFusionPass()";
     let description = [{
         Pattern rewrites:
           - coa.qlinearconv -> coa.relu6  =>  fused (silu_addr / activation LUT)
@@ -52,6 +54,7 @@ def COAOpFusion : Pass<"coa-op-fusion", "::mlir::func::FuncOp"> {
 
 def COATiling : Pass<"coa-tiling", "::mlir::func::FuncOp"> {
     let summary = "Compute hardware-aware tM/tR/tC tile sizes for each COA op.";
+    let constructor = "::mlir::coa::createCOATilingPass()";
     let description = [{
         For each coa.qlinearconv / coa.qgemm:
           1. Reads N, M, R, C, kernel, stride, pad, dilation from op attributes.
@@ -79,6 +82,7 @@ def COATiling : Pass<"coa-tiling", "::mlir::func::FuncOp"> {
 
 def COAAddrAssign : Pass<"coa-addr-assign", "::mlir::func::FuncOp"> {
     let summary = "Assign DDR addresses and compute quantization factors for each COA op.";
+    let constructor = "::mlir::coa::createCOAAddrAssignPass()";
     let description = [{
         Address layout (matching assign_addr.py):
           - First-layer input:   0x0
@@ -107,6 +111,7 @@ def COAAddrAssign : Pass<"coa-addr-assign", "::mlir::func::FuncOp"> {
 
 def COALegalize : Pass<"coa-legalize", "::mlir::func::FuncOp"> {
     let summary = "Verify all COA hardware attributes satisfy FPGA constraints.";
+    let constructor = "::mlir::coa::createCOALegalizePass()";
     let description = [{
         Checks:
           - All addresses are non-zero (except the first layer input).
@@ -127,6 +132,7 @@ def COALegalize : Pass<"coa-legalize", "::mlir::func::FuncOp"> {
 
 def COAVLIWGen : Pass<"coa-vliw-gen", "::mlir::func::FuncOp"> {
     let summary = "Emit 512-bit VLIW binary instructions from hardware-lowered COA ops.";
+    let constructor = "::mlir::coa::createCOAVLIWGenPass()";
     let description = [{
         For each COA op in program order:
           1. Maps op type to VLIW operator field (0=conv, 1=pool, 2=GAP, 3=add).

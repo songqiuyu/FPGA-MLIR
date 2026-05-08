@@ -13,9 +13,9 @@ import unittest
 import subprocess
 import tempfile
 
-# Add old_version/tools/ to path for the Python reference implementation
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'legacy', 'tools'))
-from vliw import VLIW as PyVLIW
+from coa.vliw import VLIW as PyVLIW
+from coa.mlir_parser import parse_all_layers
+from coa.tiling import get_tile, calculate_buffer_consumption
 
 
 class TestPythonVLIWPacking(unittest.TestCase):
@@ -120,11 +120,7 @@ module {
 """
 
     def test_minimal_mlir_parse(self):
-        """extract_vliw.parse_all_layers should parse the minimal MLIR without error."""
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'legacy', 'tools'))
-        from extract_vliw import parse_all_layers
-        import tempfile
-
+        """mlir_parser.parse_all_layers should parse the minimal MLIR without error."""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.mlir', delete=False) as f:
             f.write(self.MINIMAL_MLIR)
             tmp = f.name
@@ -145,9 +141,6 @@ class TestTilingConstraints(unittest.TestCase):
 
     def test_baseline_resnet_first_conv(self):
         """ResNet first conv (3x7x7, stride=2): tile must satisfy all limits."""
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'legacy', 'tools'))
-        from assign_addr import get_tile, calculate_buffer_consumption
-
         N, M, R, C, k, s, d = 3, 64, 112, 112, 7, 2, 1
         tM, tR, tC = get_tile(N, M, R, C, k, s, 0, d)
         flag = calculate_buffer_consumption(N, tM, tR, tC, N, M, k, s, 0, d)
@@ -156,9 +149,6 @@ class TestTilingConstraints(unittest.TestCase):
 
     def test_1x1_conv(self):
         """1×1 convolution tiling is always trivially legal."""
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'legacy', 'tools'))
-        from assign_addr import get_tile, calculate_buffer_consumption
-
         N, M, R, C, k, s, d = 256, 64, 56, 56, 1, 1, 1
         tM, tR, tC = get_tile(N, M, R, C, k, s, 0, d)
         flag = calculate_buffer_consumption(N, tM, tR, tC, N, M, k, s, 0, d)
@@ -166,9 +156,6 @@ class TestTilingConstraints(unittest.TestCase):
 
     def test_tM_minimum(self):
         """tM must be at least 16 (hardware granularity)."""
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'legacy', 'tools'))
-        from assign_addr import get_tile
-
         tM, _, _ = get_tile(512, 512, 7, 7, 3, 1, 0, 1)
         self.assertGreaterEqual(tM, 16)
 
@@ -178,15 +165,10 @@ class TestBayesianTiling(unittest.TestCase):
 
     def test_bayesian_returns_legal_tile(self):
         """Bayesian search must return a legal tiling."""
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__),
-                                         '..', 'optimizer', 'tiling_search'))
         try:
-            from bayesian_opt import bayesian_tile_search
+            from optimizer.tiling_search.bayesian_opt import bayesian_tile_search
         except ImportError:
             self.skipTest("bayesian_opt not importable (missing optuna?)")
-
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'legacy', 'tools'))
-        from assign_addr import calculate_buffer_consumption
 
         tM, tR, tC = bayesian_tile_search(N=64, M=64, R=56, C=56,
                                            k=3, s=1, d=1, n_trials=30)

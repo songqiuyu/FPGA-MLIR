@@ -13,7 +13,6 @@
 
 #include "COA/COADialect.h"
 #include "COA/COAOps.h"
-#include "COA/COAPasses.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/PatternMatch.h"
@@ -23,7 +22,7 @@
 
 namespace mlir::coa {
 
-#define GEN_PASS_DEF_COAOPFUSION
+#define GEN_PASS_CLASSES
 #include "COA/COAPasses.h.inc"
 
 namespace {
@@ -42,13 +41,13 @@ struct ConvResidualFusePattern : public OpRewritePattern<QLinearConvOp> {
     LogicalResult matchAndRewrite(QLinearConvOp conv,
                                   PatternRewriter &rewriter) const override {
         // Check if conv feeds a qlinearadd immediately
-        Value convOut = conv.getOutput();
+        Value convOut = conv.output();
         for (Operation *user : convOut.getUsers()) {
             if (auto add = dyn_cast<QLinearAddOp>(user)) {
                 // Mark the conv's silu_addr as the residual add address if
                 // it is still at default 0 (not yet fused).
-                if (conv.getSiluAddr() == 0) {
-                    rewriter.modifyOpInPlace(conv, [&]() {
+                if (conv.silu_addr() == 0) {
+                    rewriter.updateRootInPlace(conv, [&]() {
                         conv->setAttr("silu_addr",
                                       rewriter.getI64IntegerAttr(kSiluLUTAddr));
                     });
@@ -60,12 +59,12 @@ struct ConvResidualFusePattern : public OpRewritePattern<QLinearConvOp> {
     }
 };
 
-struct COAOpFusionPass : public impl::COAOpFusionBase<COAOpFusionPass> {
+struct COAOpFusionPass : public COAOpFusionBase<COAOpFusionPass> {
     void runOnOperation() override {
         RewritePatternSet patterns(&getContext());
         patterns.add<ConvResidualFusePattern>(&getContext());
         FrozenRewritePatternSet frozen(std::move(patterns));
-        if (failed(applyPatternsGreedily(getOperation(), frozen)))
+        if (failed(applyPatternsAndFoldGreedily(getOperation(), frozen)))
             signalPassFailure();
     }
 };

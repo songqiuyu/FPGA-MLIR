@@ -10,16 +10,15 @@ Reward: Buffer utilization score if legal, -1 penalty if any limit exceeded.
 
 import math
 import numpy as np
-import sys
-import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'legacy', 'tools'))
-from assign_addr import calculate_buffer_consumption, get_tile
-
-# ---- Buffer limits (must match --coa-tiling pass defaults) ----
-WDEPTH_LIMIT = 256
-GDEPTH_LIMIT = 1024
-ODEPTH_LIMIT = 2048
+from coa.tiling import (
+    calculate_buffer_consumption,
+    get_tile,
+    buffer_utilization as _coa_buffer_utilization,
+    WDEPTH_LIMIT,
+    GDEPTH_LIMIT,
+    ODEPTH_LIMIT,
+)
 
 # ---- Tile step candidates for each dimension ----
 _STEP_VALUES = [1, 2, 4, 8, 16, 32, 64]
@@ -27,24 +26,7 @@ _STEP_VALUES = [1, 2, 4, 8, 16, 32, 64]
 
 def buffer_utilization(tN, tM, tR, tC, N, M, k, s, d):
     """Return (wutil, gutil, outil) in [0, 1]; > 1.0 means over-limit."""
-    import math
-    def ceil32(x):
-        return math.ceil(x / 32)
-    def ceil16(x):
-        return math.ceil(x / 16)
-
-    tN32 = max(ceil32(sn + tN) - sn // 32 for sn in range(0, N, tN)) if N > 0 else 1
-    tM32 = max(ceil16(sm + tM) - sm // 16 for sm in range(0, M, tM)) if M > 0 else 1
-
-    relems = (tR - 1) * s + (k - 1) * d + 1
-    celems = (tC - 1) * s + (k - 1) * d + 1
-    gdepth = relems * celems * tN32
-    wdepth = tN32 * k * k * tM32
-    odepth = tR * tC * tM32
-
-    return (wdepth / WDEPTH_LIMIT,
-            gdepth / GDEPTH_LIMIT,
-            odepth / ODEPTH_LIMIT)
+    return _coa_buffer_utilization(tN, tM, tR, tC, N, M, k, s, d)
 
 
 class TilingEnv:

@@ -11,7 +11,7 @@
 
 #include "COA/COADialect.h"
 #include "COA/COAPasses.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/InitAllDialects.h"

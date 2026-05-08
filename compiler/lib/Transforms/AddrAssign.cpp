@@ -15,7 +15,6 @@
 
 #include "COA/COADialect.h"
 #include "COA/COAOps.h"
-#include "COA/COAPasses.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Pass/Pass.h"
@@ -26,10 +25,23 @@
 
 namespace mlir::coa {
 
-#define GEN_PASS_DEF_COAADDRASSIGN
+#define GEN_PASS_CLASSES
 #include "COA/COAPasses.h.inc"
 
 namespace {
+
+static int64_t arrI(ArrayAttr a, unsigned i, int64_t def = 0) {
+    if (!a || i >= a.size()) return def;
+    return a[i].cast<IntegerAttr>().getInt();
+}
+static double toDouble(llvm::APFloat f) {
+    return f.convertToDouble();
+}
+static SmallVector<double> arrF(ArrayAttr a) {
+    SmallVector<double> v;
+    for (auto e : a) v.push_back(e.cast<FloatAttr>().getValueAsDouble());
+    return v;
+}
 
 /// Round up x to the next multiple of align.
 static int64_t alignUp(int64_t x, int64_t align) {
@@ -57,7 +69,7 @@ computeAddFactors(double aScale, double bScale, double outScale) {
             static_cast<int64_t>(std::round(bScale / outScale * (1LL << 15)))};
 }
 
-struct COAAddrAssignPass : public impl::COAAddrAssignBase<COAAddrAssignPass> {
+struct COAAddrAssignPass : public COAAddrAssignBase<COAAddrAssignPass> {
     void runOnOperation() override {
         func::FuncOp funcOp = getOperation();
         OpBuilder builder(funcOp.getContext());
@@ -83,10 +95,10 @@ struct COAAddrAssignPass : public impl::COAAddrAssignBase<COAAddrAssignPass> {
             };
 
             if (auto conv = dyn_cast<QLinearConvOp>(op)) {
-                int64_t N = alignUp(conv.getN(), 32);
-                int64_t M = conv.getM();
-                auto kernel = conv.getKernelShape();
-                int64_t kH = kernel[0], kW = kernel[1];
+                int64_t N = alignUp(conv.N(), 32);
+                int64_t M = conv.M();
+                auto kernel = conv.kernel_shape();
+                int64_t kH = arrI(kernel,0,1), kW = arrI(kernel,1,1);
 
                 // Weight size: M * N_aligned * kH * kW (int8)
                 int64_t wSize = M * N * kH * kW;
@@ -101,10 +113,10 @@ struct COAAddrAssignPass : public impl::COAAddrAssignBase<COAAddrAssignPass> {
                 conv->setAttr("bias_addr",   builder.getI64IntegerAttr(bBase + biasOffset));
 
                 // Compute quantization factor
-                auto wScaleArr = conv.getWeightScale();
-                SmallVector<double> wScales(wScaleArr.begin(), wScaleArr.end());
-                int64_t factor = computeConvFactor(conv.getInScale(), wScales,
-                                                   conv.getOutScale());
+                SmallVector<double> wScales = arrF(conv.weight_scale());
+                int64_t factor = computeConvFactor(
+                    toDouble(conv.in_scale()), wScales,
+                    toDouble(conv.out_scale()));
                 conv->setAttr("factor", builder.getI64IntegerAttr(factor));
 
                 weightOffset += wSize;
@@ -112,11 +124,11 @@ struct COAAddrAssignPass : public impl::COAAddrAssignBase<COAAddrAssignPass> {
                 isFirstOp = false;
 
             } else if (auto gemm = dyn_cast<QGemmOp>(op)) {
-                int64_t N = alignUp(gemm.getN(), 32);
-                int64_t M = alignUp(gemm.getM(), 16);
+                int64_t N = alignUp(gemm.N(), 32);
+                int64_t M = alignUp(gemm.M(), 16);
 
                 int64_t wSize = M * N;
-                int64_t bSize = gemm.getM() * 4;
+                int64_t bSize = gemm.M() * 4;
 
                 auto [inAddr, outAddr] = getActAddrs(isFirstOp);
 
@@ -125,10 +137,10 @@ struct COAAddrAssignPass : public impl::COAAddrAssignBase<COAAddrAssignPass> {
                 gemm->setAttr("weight_addr", builder.getI64IntegerAttr(wBase + weightOffset));
                 gemm->setAttr("bias_addr",   builder.getI64IntegerAttr(bBase + biasOffset));
 
-                auto bScaleArr = gemm.getBScale();
-                SmallVector<double> bScales(bScaleArr.begin(), bScaleArr.end());
-                int64_t factor = computeConvFactor(gemm.getAScale(), bScales,
-                                                   gemm.getOutScale());
+                SmallVector<double> bScales = arrF(gemm.b_scale());
+                int64_t factor = computeConvFactor(
+                    toDouble(gemm.a_scale()), bScales,
+                    toDouble(gemm.out_scale()));
                 gemm->setAttr("factor", builder.getI64IntegerAttr(factor));
 
                 weightOffset += wSize;
@@ -147,8 +159,9 @@ struct COAAddrAssignPass : public impl::COAAddrAssignBase<COAAddrAssignPass> {
                 add->setAttr("in2_addr", builder.getI64IntegerAttr(actBase));
                 add->setAttr("out_addr", builder.getI64IntegerAttr(actBase));
 
-                auto [f, f2] = computeAddFactors(add.getAScale(), add.getBScale(),
-                                                 add.getOutScale());
+                auto [f, f2] = computeAddFactors(
+                    toDouble(add.a_scale()), toDouble(add.b_scale()),
+                    toDouble(add.out_scale()));
                 add->setAttr("factor",  builder.getI64IntegerAttr(f));
                 add->setAttr("factor2", builder.getI64IntegerAttr(f2));
                 isFirstOp = false;

@@ -10,13 +10,12 @@
 
 #include "COA/COADialect.h"
 #include "COA/COAOps.h"
-#include "COA/COAPasses.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir::coa {
 
-#define GEN_PASS_DEF_COALEGALIZE
+#define GEN_PASS_CLASSES
 #include "COA/COAPasses.h.inc"
 
 namespace {
@@ -34,7 +33,7 @@ static bool checkFactor(int64_t v) {
     return v >= -(1LL << 33) && v <= kMaxFactor34;
 }
 
-struct COALegalizePass : public impl::COALegalizeBase<COALegalizePass> {
+struct COALegalizePass : public COALegalizeBase<COALegalizePass> {
     void runOnOperation() override {
         func::FuncOp funcOp = getOperation();
         bool failed = false;
@@ -57,7 +56,7 @@ struct COALegalizePass : public impl::COALegalizeBase<COALegalizePass> {
             for (int64_t a : addrs) {
                 if (!checkAddr(a)) {
                     op->emitError("COA legalize: DDR address 0x" +
-                                  llvm::utohexstr(static_cast<uint64_t>(a)) +
+                                  std::to_string(static_cast<uint64_t>(a)) +
                                   " exceeds 36-bit field");
                     failed = true;
                 }
@@ -66,38 +65,38 @@ struct COALegalizePass : public impl::COALegalizeBase<COALegalizePass> {
 
         funcOp.walk([&](Operation *op) {
             if (auto conv = dyn_cast<QLinearConvOp>(op)) {
-                checkDims(op, conv.getR(), conv.getC(), conv.getM(), conv.getN(),
-                          conv.getR0(), conv.getC0());
-                checkAddrs(op, {conv.getInAddr(), conv.getOutAddr(),
-                                conv.getWeightAddr(), conv.getBiasAddr()});
-                if (conv.getTM() < 16)
-                    op->emitWarning("COA legalize: tM=" + std::to_string(conv.getTM()) +
+                checkDims(op, conv.R(), conv.C(), conv.M(), conv.N(),
+                          conv.R0(), conv.C0());
+                checkAddrs(op, {conv.in_addr(), conv.out_addr(),
+                                conv.weight_addr(), conv.bias_addr()});
+                if (conv.tM() < 16)
+                    op->emitWarning("COA legalize: tM=" + std::to_string(conv.tM()) +
                                     " < 16 (minimum hardware granularity)");
-                if (!checkFactor(conv.getFactor())) {
-                    op->emitError("COA legalize: factor " + std::to_string(conv.getFactor()) +
+                if (!checkFactor(conv.factor())) {
+                    op->emitError("COA legalize: factor " + std::to_string(conv.factor()) +
                                   " overflows 34-bit signed field");
                     failed = true;
                 }
 
             } else if (auto pool = dyn_cast<MaxPoolOp>(op)) {
-                checkDims(op, pool.getR(), pool.getC(), pool.getM(), pool.getN(),
-                          pool.getR0(), pool.getC0());
-                checkAddrs(op, {pool.getInAddr(), pool.getOutAddr()});
+                checkDims(op, pool.R(), pool.C(), pool.M(), pool.N(),
+                          pool.R0(), pool.C0());
+                checkAddrs(op, {pool.in_addr(), pool.out_addr()});
 
             } else if (auto add = dyn_cast<QLinearAddOp>(op)) {
-                checkDims(op, add.getR(), add.getC(), add.getM(), add.getN(),
-                          add.getR0(), add.getC0());
-                checkAddrs(op, {add.getInAddr(), add.getIn2Addr(), add.getOutAddr()});
+                checkDims(op, add.R(), add.C(), add.M(), add.N(),
+                          add.R0(), add.C0());
+                checkAddrs(op, {add.in_addr(), add.in2_addr(), add.out_addr()});
 
             } else if (auto gap = dyn_cast<QLinearGlobalAveragePoolOp>(op)) {
-                checkDims(op, gap.getR(), gap.getC(), gap.getM(), gap.getN(),
-                          gap.getR0(), gap.getC0());
-                checkAddrs(op, {gap.getInAddr(), gap.getOutAddr()});
+                checkDims(op, gap.R(), gap.C(), gap.M(), gap.N(),
+                          gap.R0(), gap.C0());
+                checkAddrs(op, {gap.in_addr(), gap.out_addr()});
 
             } else if (auto gemm = dyn_cast<QGemmOp>(op)) {
-                checkAddrs(op, {gemm.getInAddr(), gemm.getOutAddr(),
-                                gemm.getWeightAddr(), gemm.getBiasAddr()});
-                if (!checkFactor(gemm.getFactor())) {
+                checkAddrs(op, {gemm.in_addr(), gemm.out_addr(),
+                                gemm.weight_addr(), gemm.bias_addr()});
+                if (!checkFactor(gemm.factor())) {
                     op->emitError("COA legalize: GEMM factor overflows 34-bit signed field");
                     failed = true;
                 }

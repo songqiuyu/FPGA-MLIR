@@ -11,16 +11,6 @@
 
 namespace mlir::coa {
 
-// Pull in all TableGen-generated pass registrations.
-#define GEN_PASS_REGISTRATION
-#include "COA/COAPasses.h.inc"
-
-void registerCOAPasses() {
-    // The GEN_PASS_REGISTRATION macro above expands to individual
-    // register<PassName>() calls.  We call the generated aggregate here.
-    registerPasses();
-}
-
 void buildCOACompilerPipeline(mlir::OpPassManager &pm) {
     pm.addPass(createCOAShapeInferPass());
     pm.addPass(createCOAOpFusionPass());

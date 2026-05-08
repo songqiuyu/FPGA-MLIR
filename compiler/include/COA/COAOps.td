@@ -9,7 +9,6 @@
 #define COA_OPS
 
 include "COA/COADialect.td"
-include "mlir/IR/CommonAttrConstraints.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 //===----------------------------------------------------------------------===//
@@ -51,16 +50,16 @@ def COA_QLinearConvOp : COA_Op<"qlinearconv"> {
         // ONNX-level quantization parameters
         F64Attr:$in_scale,
         I32Attr:$in_zp,
-        DenseF64ArrayAttr:$weight_scale,   // per-channel array
-        DenseI32ArrayAttr:$weight_zp,      // per-channel array
+        F64ArrayAttr:$weight_scale,        // per-channel array
+        I64ArrayAttr:$weight_zp,            // per-channel array
         F64Attr:$out_scale,
         I32Attr:$out_zp,
 
         // Convolution geometry
-        DenseI32ArrayAttr:$kernel_shape,
-        DefaultValuedAttr<DenseI32ArrayAttr, "{1, 1}">:$strides,
-        DefaultValuedAttr<DenseI32ArrayAttr, "{0, 0, 0, 0}">:$pads,
-        DefaultValuedAttr<DenseI32ArrayAttr, "{1, 1}">:$dilations,
+        I64ArrayAttr:$kernel_shape,
+        OptionalAttr<I64ArrayAttr>:$strides,
+        OptionalAttr<I64ArrayAttr>:$pads,
+        OptionalAttr<I64ArrayAttr>:$dilations,
 
         // Hardware-assigned by --coa-addr-assign (default 0)
         DefaultValuedAttr<I64Attr, "0">:$in_addr,
@@ -106,9 +105,9 @@ def COA_MaxPoolOp : COA_Op<"maxpool"> {
         AnyTensor:$input,
 
         // Pooling geometry
-        DenseI32ArrayAttr:$kernel_shape,
-        DefaultValuedAttr<DenseI32ArrayAttr, "{1, 1}">:$strides,
-        DefaultValuedAttr<DenseI32ArrayAttr, "{0, 0, 0, 0}">:$pads,
+        I64ArrayAttr:$kernel_shape,
+        OptionalAttr<I64ArrayAttr>:$strides,
+        OptionalAttr<I64ArrayAttr>:$pads,
 
         // Hardware-assigned
         DefaultValuedAttr<I64Attr, "0">:$in_addr,
@@ -244,8 +243,8 @@ def COA_QGemmOp : COA_Op<"qgemm"> {
         // Quantization
         F64Attr:$a_scale,
         I32Attr:$a_zp,
-        DenseF64ArrayAttr:$b_scale,
-        DenseI32ArrayAttr:$b_zp,
+        F64ArrayAttr:$b_scale,
+        I64ArrayAttr:$b_zp,
         F64Attr:$out_scale,
         I32Attr:$out_zp,
 

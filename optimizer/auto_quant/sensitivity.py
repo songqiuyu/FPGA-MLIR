@@ -12,19 +12,11 @@ Usage:
 """
 
 import re
-import sys
-import os
 from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'legacy', 'coa_mlir'))
-try:
-    from frontend.interpreter import COAInterpreter
-    _HAS_INTERP = True
-except ImportError:
-    _HAS_INTERP = False
-    print("[sensitivity] COAInterpreter not found; using simplified proxy.")
+_HAS_INTERP = False  # COAInterpreter lives in legacy; sensitivity uses proxy mode only
 
 # Supported quantisation bit-widths for per-layer search
 SUPPORTED_BITS = [4, 8, 16]

@@ -20,28 +20,24 @@ class FuncOp;
 
 namespace mlir::coa {
 
-//===----------------------------------------------------------------------===//
-// Pass factory declarations
-//===----------------------------------------------------------------------===//
-
 std::unique_ptr<mlir::Pass> createCOAShapeInferPass();
 std::unique_ptr<mlir::Pass> createCOAOpFusionPass();
 std::unique_ptr<mlir::Pass> createCOATilingPass();
 std::unique_ptr<mlir::Pass> createCOAAddrAssignPass();
 std::unique_ptr<mlir::Pass> createCOALegalizePass();
 std::unique_ptr<mlir::Pass> createCOAVLIWGenPass();
-
-/// Registers all COA passes with the global pass registry.
-void registerCOAPasses();
-
-/// Returns the default full pipeline:
-///   shape-infer -> op-fusion -> tiling -> addr-assign -> legalize -> vliw-gen
 void buildCOACompilerPipeline(mlir::OpPassManager &pm);
 
 } // namespace mlir::coa
 
-// Include TableGen-generated pass declarations.
+// GEN_PASS_DECL: forward-declares the base class templates at global scope.
 #define GEN_PASS_DECL
 #include "COA/COAPasses.h.inc"
+
+// GEN_PASS_REGISTRATION: inline registration helpers inside mlir::coa.
+namespace mlir::coa {
+#define GEN_PASS_REGISTRATION
+#include "COA/COAPasses.h.inc"
+} // namespace mlir::coa
 
 #endif // COA_COAPASSES_H

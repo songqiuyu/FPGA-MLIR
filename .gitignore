@@ -1,1 +1,11 @@
 llvm-project/
+cmake-build-debug/
+.idea/
+examples/resnet18/data/
+examples/resnet18/model/
+examples/resnet18/output/
+.claude/
+.idea/
+.pytest_cache/
+.vscode/
+compiler/build/

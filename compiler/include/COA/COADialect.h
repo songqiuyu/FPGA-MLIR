@@ -10,6 +10,7 @@
 #include "mlir/IR/Dialect.h"
 
 // Include TableGen-generated dialect declaration.
-#include "COA/COAOpsDialect.cpp.inc"
+#define GET_DIALECT_CLASSES
+#include "COA/COAOpsDialect.h.inc"
 
 #endif // COA_COADIALECT_H

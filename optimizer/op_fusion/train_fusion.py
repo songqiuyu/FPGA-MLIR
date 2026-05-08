@@ -72,7 +72,7 @@ def evaluate_model(model, graphs):
 
 def main():
     parser = argparse.ArgumentParser(description="Train GNN op-fusion classifier")
-    parser.add_argument("--mlir-dir", default="../../legacy/parameters",
+    parser.add_argument("--mlir-dir", default="../../examples/resnet18/model",
                         help="Directory containing COA .mlir files")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--lr",     type=float, default=1e-3)
