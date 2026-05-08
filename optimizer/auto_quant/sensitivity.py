@@ -18,7 +18,7 @@ from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'old_version', 'coa_mlir'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'legacy', 'coa_mlir'))
 try:
     from frontend.interpreter import COAInterpreter
     _HAS_INTERP = True

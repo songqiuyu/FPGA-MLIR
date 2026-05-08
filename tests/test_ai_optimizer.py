@@ -10,7 +10,7 @@ import tempfile
 import unittest
 import numpy as np
 
-AI_DIR = os.path.join(os.path.dirname(__file__), '..', 'ai_optimizer')
+AI_DIR = os.path.join(os.path.dirname(__file__), '..', 'optimizer')
 
 
 class TestTilingEnv(unittest.TestCase):
@@ -53,7 +53,7 @@ class TestTilingEnv(unittest.TestCase):
     def test_buffer_utilization_legal(self):
         """Buffer utilization must be <= 1.0 after get_tile() produces a legal tile."""
         import sys, os
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'old_version', 'tools'))
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'legacy', 'tools'))
         from assign_addr import get_tile
         from env import buffer_utilization
         N, M, R, C, k, s, d = 64, 128, 28, 28, 3, 1, 1

@@ -13,7 +13,7 @@ import numpy as np
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'old_version', 'tools'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'legacy', 'tools'))
 from assign_addr import calculate_buffer_consumption, get_tile
 
 # ---- Buffer limits (must match --coa-tiling pass defaults) ----
